@@ -7,6 +7,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
 import accountRoutes from './routes/accounts';
 import instrumentRoutes from './routes/instruments';
+import positionRoutes from './routes/positions';
 
 // Validate environment variables (with error handling)
 try {
@@ -44,6 +45,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/instruments', instrumentRoutes);
+app.use('/api/positions', positionRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
