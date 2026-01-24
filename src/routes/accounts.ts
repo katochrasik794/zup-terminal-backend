@@ -11,7 +11,7 @@ const router = Router();
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
-    
+
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -19,7 +19,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       });
     }
 
-    // Find all MT5 accounts for the user (exclude archived accounts)
     const mt5Accounts = await prisma.mT5Account.findMany({
       where: {
         userId: userId,
@@ -29,6 +28,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         id: true,
         accountId: true,
         accountType: true,
+        group: true,
         createdAt: true,
       },
       orderBy: {
@@ -36,7 +36,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       },
     });
 
-    // Find default account for user (if any)
     let defaultAccount: { mt5AccountId: string } | null = null;
     const anyPrisma = prisma as any;
     if (anyPrisma?.defaultMT5Account?.findUnique) {
@@ -50,16 +49,15 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       }
     }
 
-    // Format accounts with # prefix
     const formattedAccounts = mt5Accounts.map(account => ({
       id: account.id,
       accountId: account.accountId,
       displayAccountId: `#${account.accountId}`,
       accountType: account.accountType || 'Live',
+      group: account.group || '',
       linkedAt: account.createdAt.toISOString(),
     }));
 
-    // Determine default: DB default if exists; fallback to first
     const fallbackDefault = formattedAccounts[0]?.accountId;
     const defaultAccountId = defaultAccount?.mt5AccountId || fallbackDefault;
 
@@ -89,6 +87,8 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
     const userId = req.user?.userId;
     const { accountId } = req.params;
 
+    console.log(`[Backend] Incoming balance request for accountId: ${accountId} (User: ${userId})`);
+
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -96,28 +96,80 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
       });
     }
 
-    // Verify the account belongs to the user
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
-        accountId: accountId,
+        accountId: accountId as string,
         userId: userId,
         archived: false,
-      },
-      select: {
-        accountId: true,
-        balance: true,
-        equity: true,
-        margin: true,
-        marginFree: true,
-        marginLevel: true,
-        profit: true,
-        credit: true,
-        leverage: true,
-        nameOnAccount: true,
-        group: true,
-        accountType: true,
-        currency: true,
-      },
+      }
+    });
+
+    if (!mt5Account) {
+      console.warn(`[Backend] Account not found or unauthorized: ${accountId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found',
+      });
+    }
+
+    const balanceUrl = `https://metaapi.zuperior.com/api/Users/${accountId}/GetClientBalance`;
+    console.log(`[Backend] Proxying to MetaAPI: ${balanceUrl}`);
+
+    try {
+      const response = await fetch(balanceUrl);
+      const result = await response.json() as any;
+
+      if (result.Success && result.Data) {
+        console.log(`[Backend] Success for ${accountId}: Equity=${result.Data.Equity}`);
+        return res.json({
+          success: true,
+          data: result.Data
+        });
+      } else {
+        console.error(`[Backend] MetaAPI Error for ${accountId}:`, result.Message || result.Error);
+        return res.status(400).json({
+          success: false,
+          message: result.Message || 'Failed to fetch balance from MetaAPI'
+        });
+      }
+    } catch (err) {
+      console.error(`[Backend] Fetch Error to MetaAPI:`, err);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error while fetching balance'
+      });
+    }
+  } catch (error) {
+    console.error('[Account Balance API] Global Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch account balance',
+    });
+  }
+});
+
+/**
+ * GET /api/accounts/:accountId/profile
+ * Get full client profile data for a specific account
+ */
+router.get('/:accountId/profile', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { accountId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        accountId: accountId as string,
+        userId: userId,
+        archived: false,
+      }
     });
 
     if (!mt5Account) {
@@ -127,51 +179,35 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
       });
     }
 
-    // Determine account type
-    const groupLower = (mt5Account.group || '').toLowerCase();
-    let accountType: 'Demo' | 'Live' = 'Live';
-    if (groupLower.includes('demo')) {
-      accountType = 'Demo';
-    } else if (groupLower.includes('live')) {
-      accountType = 'Live';
-    } else {
-      accountType = (mt5Account.accountType === 'Live' ? 'Live' : 'Demo') as 'Demo' | 'Live';
+    const profileUrl = `https://metaapi.zuperior.com/api/Users/${accountId}/GetClientProfile`;
+
+    try {
+      const response = await fetch(profileUrl);
+      const result = await response.json() as any;
+
+      if (result.Success && result.Data) {
+        return res.json({
+          success: true,
+          data: result.Data
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: result.Message || 'Failed to fetch profile from MetaAPI'
+        });
+      }
+    } catch (err) {
+      console.error(`[Backend Profile] Fetch Error:`, err);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error while fetching profile'
+      });
     }
-
-    // Handle null/undefined values from database
-    const balance = mt5Account.balance != null ? Number(mt5Account.balance) : 0;
-    const equity = mt5Account.equity != null ? Number(mt5Account.equity) : balance; // Default to balance if equity is null
-    const margin = mt5Account.margin != null ? Number(mt5Account.margin) : 0;
-    const freeMargin = mt5Account.marginFree != null ? Number(mt5Account.marginFree) : (equity - margin);
-    const credit = mt5Account.credit != null ? Number(mt5Account.credit) : 0;
-    const totalPL = equity - balance;
-    const profit = mt5Account.profit != null ? Number(mt5Account.profit) : totalPL;
-
-    const balanceData = {
-      balance,
-      equity,
-      margin,
-      freeMargin,
-      marginLevel: Number(mt5Account.marginLevel) || 0,
-      profit,
-      leverage: mt5Account.leverage ? `1:${mt5Account.leverage}` : '1:200',
-      totalPL: parseFloat(totalPL.toFixed(2)),
-      credit,
-      accountType,
-      name: mt5Account.nameOnAccount || 'Test',
-      accountGroup: (mt5Account.group || '').split('\\').pop()?.toLowerCase() || 'standard',
-      groupName: mt5Account.group || '',
-    };
-
-    return res.json({
-      success: true,
-      data: balanceData,
-    });
   } catch (error) {
-    console.error('[Account Balance API] Error:', error);
+    console.error('[Account Profile API] Global Error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch account balance',
+      message: 'Failed to fetch account profile',
     });
   }
 });

@@ -6,6 +6,7 @@ import { validateEnv, env } from './lib/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
 import accountRoutes from './routes/accounts';
+import instrumentRoutes from './routes/instruments';
 
 // Validate environment variables (with error handling)
 try {
@@ -42,6 +43,7 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/accounts', accountRoutes);
+app.use('/api/instruments', instrumentRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
