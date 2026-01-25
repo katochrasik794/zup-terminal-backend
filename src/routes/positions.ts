@@ -124,44 +124,149 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
       });
     }
 
-    // Fetch positions from REST API
+    // Fetch open positions, pending orders, and closed positions from REST API
     const positionsUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Positions`;
-    console.log(`[Positions API] Fetching positions from: ${positionsUrl}`);
+    const pendingOrdersUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Orders`;
+    // Use tradehistory/trades endpoint for closed positions (same as zuperior-terminal)
+    // Build query params with accountId (both cases for compatibility) and date range
+    const historyParams = new URLSearchParams();
+    historyParams.set('accountId', accountId);
+    historyParams.set('AccountId', accountId);
+    // Add date range: 1970-01-01 to 2100-01-01 to get all trades
+    historyParams.set('fromDate', '1970-01-01');
+    historyParams.set('FromDate', '1970-01-01');
+    historyParams.set('toDate', '2100-01-01');
+    historyParams.set('ToDate', '2100-01-01');
+    // Add pageSize to get all trades (optional, API may have defaults)
+    historyParams.set('pageSize', '10000'); // Large page size to get all trades
+    historyParams.set('PageSize', '10000');
+    const closedPositionsUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/tradehistory/trades?${historyParams.toString()}`;
+    
+    console.log(`[Positions API] Fetching data from: ${positionsUrl}, ${pendingOrdersUrl}, ${closedPositionsUrl}`);
+
+    const headers = {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    };
+    
+    // TradeHistory endpoint uses Accept header only (same as zuperior-terminal)
+    // The endpoint doesn't require Bearer token authentication
+    const historyHeaders = {
+      'Accept': 'application/json',
+    };
 
     try {
-      const positionsRes = await fetch(positionsUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      // Fetch all three types in parallel
+      const [positionsRes, pendingRes, closedRes] = await Promise.allSettled([
+        fetch(positionsUrl, { method: 'GET', headers }),
+        fetch(pendingOrdersUrl, { method: 'GET', headers }),
+        fetch(closedPositionsUrl, { method: 'GET', headers: historyHeaders }),
+      ]);
 
-      if (!positionsRes.ok) {
-        const errorText = await positionsRes.text().catch(() => '');
-        console.error(`[Positions API] Positions fetch failed: ${positionsRes.status}`, errorText);
-        return res.status(positionsRes.status).json({
-          success: false,
-          message: `Failed to fetch positions: ${positionsRes.status}`,
-          data: [],
-        });
+      // Process open positions
+      let positions: any[] = [];
+      if (positionsRes.status === 'fulfilled' && positionsRes.value.ok) {
+        const positionsData = await positionsRes.value.json() as any;
+        positions = positionsData?.positions || positionsData?.Positions || positionsData?.data || positionsData?.Data || [];
+        console.log(`[Positions API] Successfully fetched ${positions.length} open positions`);
+      } else {
+        console.warn(`[Positions API] Failed to fetch open positions:`, positionsRes.status === 'rejected' ? positionsRes.reason : positionsRes.value?.status);
       }
 
-      const positionsData = await positionsRes.json() as any;
-      
-      // Extract positions from response
-      // Response format: { message: "...", accountId: 19876890, positions: [...] }
-      const positions = positionsData?.positions || positionsData?.Positions || positionsData?.data || positionsData?.Data || [];
+      // Process pending orders
+      let pendingOrders: any[] = [];
+      if (pendingRes.status === 'fulfilled' && pendingRes.value.ok) {
+        const pendingData = await pendingRes.value.json() as any;
+        pendingOrders = pendingData?.orders || pendingData?.Orders || pendingData?.data || pendingData?.Data || [];
+        console.log(`[Positions API] Successfully fetched ${pendingOrders.length} pending orders`);
+      } else {
+        console.warn(`[Positions API] Failed to fetch pending orders:`, pendingRes.status === 'rejected' ? pendingRes.reason : pendingRes.value?.status);
+      }
 
-      console.log(`[Positions API] Successfully fetched ${Array.isArray(positions) ? positions.length : 0} positions for account ${accountId}`);
-      console.log(`[Positions API] Full response:`, JSON.stringify(positionsData, null, 2));
+      // Process closed positions from tradehistory/trades endpoint (same as zuperior-terminal)
+      let closedPositions: any[] = [];
+      if (closedRes.status === 'fulfilled' && closedRes.value.ok) {
+        const closedData = await closedRes.value.json() as any;
+        // The tradehistory/trades endpoint returns trades array
+        // Response format: { Items: [...] } or { data: [...] } or { trades: [...] } or just array
+        let allTrades: any[] = [];
+        
+        if (Array.isArray(closedData)) {
+          allTrades = closedData;
+        } else if (closedData && typeof closedData === 'object') {
+          // Try all possible response formats (same as zuperior-terminal)
+          allTrades = closedData.Items || closedData.Data || closedData.data || 
+                     closedData.trades || closedData.Trades || closedData.items ||
+                     closedData.results || closedData.Results || 
+                     closedData.closedTrades || closedData.ClosedTrades ||
+                     closedData.tradeHistory || closedData.TradeHistory || [];
+        }
+        
+        console.log(`[Positions API] Fetched ${allTrades.length} total trades from tradehistory endpoint`);
+        
+        // Apply filters (same as zuperior-terminal)
+        // 1. Filter zero profit trades (default: true, can be controlled via env)
+        const DEFAULT_FILTER_ZERO_PROFIT = process.env.TRADE_HISTORY_FILTER_ZERO_PROFIT !== 'false'; // Default true
+        let filteredTrades = allTrades;
+        
+        if (DEFAULT_FILTER_ZERO_PROFIT) {
+          filteredTrades = allTrades.filter((trade: any) => {
+            const profit = trade.Profit ?? trade.profit ?? trade.PnL ?? trade.pnl ?? 0;
+            const n = Number(profit);
+            return Number.isFinite(n) && n !== 0;
+          });
+          console.log(`[Positions API] Filtered ${filteredTrades.length} non-zero P/L trades from ${allTrades.length} total`);
+        }
+        
+        // 2. Filter invalid trades (same validation as zuperior-terminal)
+        // A closed position must have:
+        // - Valid OrderId or DealId > 0
+        // - Non-empty Symbol
+        // - Valid Price (close price) > 0
+        // - Valid VolumeLots or Volume > 0
+        closedPositions = filteredTrades.filter((trade: any) => {
+          const orderId = trade.OrderId ?? trade.orderId ?? trade.DealId ?? trade.dealId ?? 0;
+          const symbol = (trade.Symbol || trade.symbol || '').trim();
+          const price = trade.Price ?? trade.price ?? trade.ClosePrice ?? trade.closePrice ?? trade.PriceClose ?? trade.priceClose ?? 0;
+          const volumeLots = trade.VolumeLots ?? trade.volumeLots ?? trade.Volume ?? trade.volume ?? 0;
+          
+          const hasValidOrderId = Number(orderId) > 0 && !isNaN(Number(orderId));
+          const hasValidSymbol = symbol && symbol.length > 0;
+          const hasValidPrice = Number(price) > 0 && !isNaN(Number(price));
+          const hasValidVolume = Number(volumeLots) > 0 && !isNaN(Number(volumeLots));
+          
+          return hasValidOrderId && hasValidSymbol && hasValidPrice && hasValidVolume;
+        });
+        
+        console.log(`[Positions API] Successfully filtered ${closedPositions.length} valid closed positions`);
+        if (closedPositions.length > 0) {
+          // Log volume information for debugging
+          const sampleTrade = closedPositions[0];
+          console.log(`[Positions API] Closed positions sample with volume info:`, {
+            OrderId: sampleTrade.OrderId ?? sampleTrade.orderId,
+            DealId: sampleTrade.DealId ?? sampleTrade.dealId,
+            Symbol: sampleTrade.Symbol ?? sampleTrade.symbol,
+            VolumeLots: sampleTrade.VolumeLots ?? sampleTrade.volumeLots,
+            Volume: sampleTrade.Volume ?? sampleTrade.volume,
+            allVolumeFields: Object.keys(sampleTrade).filter(k => k.toLowerCase().includes('volume')),
+            fullTrade: JSON.stringify(sampleTrade, null, 2)
+          });
+        }
+      } else {
+        const errorText = closedRes.status === 'rejected' 
+          ? String(closedRes.reason)
+          : (closedRes.value?.status ? `Status ${closedRes.value.status}` : 'Unknown error');
+        console.warn(`[Positions API] Failed to fetch closed positions:`, errorText);
+      }
 
-      // Return response matching the curl format
+      // Return all three types
       return res.json({
         success: true,
-        message: positionsData?.message || 'Positions retrieved successfully',
-        accountId: positionsData?.accountId || parseInt(accountId, 10),
+        message: 'Positions retrieved successfully',
+        accountId: parseInt(accountId, 10),
         positions: positions,
+        pendingOrders: pendingOrders,
+        closedPositions: closedPositions,
         data: positions, // Also include in data for backward compatibility
       });
 
@@ -171,6 +276,8 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         success: false,
         message: `Failed to fetch positions: ${fetchError.message}`,
         data: [],
+        pendingOrders: [],
+        closedPositions: [],
       });
     }
 
