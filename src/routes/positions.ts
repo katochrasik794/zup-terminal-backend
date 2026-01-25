@@ -47,18 +47,18 @@ router.post('/close-all', authenticateToken, async (req: Request, res: Response)
     // Authenticate with MetaAPI to get access token
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     let accessToken: string | null = null;
     try {
       if (!mt5Account.password) {
@@ -74,7 +74,7 @@ router.post('/close-all', authenticateToken, async (req: Request, res: Response)
         DeviceId: `web_closeall_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,7 +103,7 @@ router.post('/close-all', authenticateToken, async (req: Request, res: Response)
     // First, get all open positions
     const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
     const positionsUrl = `${API_BASE}/client/Positions`;
-    
+
     try {
       // Get all positions
       const positionsResponse = await fetch(positionsUrl, {
@@ -124,7 +124,7 @@ router.post('/close-all', authenticateToken, async (req: Request, res: Response)
 
       const positionsData = await positionsResponse.json() as any;
       const positions = positionsData?.positions || positionsData?.data || positionsData || [];
-      
+
       if (!Array.isArray(positions) || positions.length === 0) {
         return res.json({
           success: true,
@@ -254,18 +254,18 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     // Authenticate with MetaAPI to get access token
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     if (!mt5Account.password) {
       return res.status(400).json({
         success: false,
@@ -281,7 +281,7 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
         DeviceId: `web_close_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -320,10 +320,10 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
         clearTimeout(t);
       }
       let json: any = null;
-      try { 
-        json = text ? JSON.parse(text) : null; 
-      } catch { 
-        json = text; 
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = text;
       }
       return { res: fetchRes, json };
     };
@@ -332,23 +332,23 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     const hasVolume = volume && Number(volume) > 0;
     const q = new URLSearchParams();
     if (hasVolume) q.set('volume', String(volume));
-    
+
     const primaryUrl = `${API_BASE}/client/position/${positionIdNum}${q.toString() ? `?${q.toString()}` : ''}`;
     const baseHeaders: Record<string, string> = {
       'Authorization': `Bearer ${accessToken}`,
       ...(accountId ? { 'AccountId': String(accountId) } : {}),
       'Accept': 'application/json',
     };
-    
+
     // Try primary method first: DELETE /client/position/{positionId}
     const primary = await doFetch(primaryUrl, { method: 'DELETE', headers: baseHeaders }, 10000);
-    
+
     // If primary succeeds, return immediately
     if (primary.res.ok || primary.res.status === 204) {
-      return res.status(primary.res.status).json({ 
-        success: true, 
-        data: primary.json, 
-        message: 'Position closed successfully' 
+      return res.status(primary.res.status).json({
+        success: true,
+        data: primary.json,
+        message: 'Position closed successfully'
       });
     }
 
@@ -364,13 +364,13 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
         headers: { 'Content-Type': 'application/json', ...baseHeaders },
         body: JSON.stringify(payload),
       }, 10000);
-      
+
       // If fallback1 succeeds, return immediately
       if (fallback1.res.ok || fallback1.res.status === 204) {
-        return res.status(fallback1.res.status).json({ 
-          success: true, 
-          data: fallback1.json, 
-          message: 'Position closed successfully' 
+        return res.status(fallback1.res.status).json({
+          success: true,
+          data: fallback1.json,
+          message: 'Position closed successfully'
         });
       }
     }
@@ -379,9 +379,9 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     const shouldFallback2 = !primary.res.ok && (!fallback1 || !fallback1.res.ok);
     let fallback2: { res: globalThis.Response; json: any } | null = null;
     if (shouldFallback2) {
-      const payload: any = { 
-        Login: parseInt(String(accountId), 10), 
-        PositionId: Number(positionIdNum) 
+      const payload: any = {
+        Login: parseInt(String(accountId), 10),
+        PositionId: Number(positionIdNum)
       };
       if (hasVolume) payload.Volume = Number(volume);
       const f2Url = `${API_BASE}/Trading/position/close`;
@@ -393,22 +393,22 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     }
 
     const final = fallback2 ?? fallback1 ?? primary;
-    
+
     // Check for success - handle both HTTP status and response body (matching zuperior-terminal)
     const isSuccess = final.res.ok || final.res.status === 204 || final.res.status === 200;
     const responseSuccess = final.json?.success || final.json?.Success || final.json?.success === true || final.json?.Success === true;
-    
+
     // If HTTP is OK but response says failure, treat as failure
     if (isSuccess && responseSuccess !== false) {
       // Success - return immediately
-      return res.status(final.res.status).json({ 
-        success: true, 
+      return res.status(final.res.status).json({
+        success: true,
         Success: true, // Include both formats for compatibility
-        data: final.json, 
-        message: 'Position closed successfully' 
+        data: final.json,
+        message: 'Position closed successfully'
       });
     }
-    
+
     // Extract error message from response
     let errorMessage = 'Failed to close position';
     if (final.json) {
@@ -418,8 +418,8 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
         errorMessage = final.json;
       }
     }
-    
-    return res.status(final.res.status || 500).json({ 
+
+    return res.status(final.res.status || 500).json({
       success: false,
       Success: false, // Include both formats for compatibility
       message: errorMessage,
@@ -486,18 +486,18 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
     // Authenticate with MetaAPI
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     let accessToken: string | null = null;
     try {
       const loginPayload = {
@@ -506,7 +506,7 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
         DeviceId: `web_modify_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -557,16 +557,16 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
         clearTimeout(t);
       }
       let json: any = null;
-      try { 
-        json = text ? JSON.parse(text) : null; 
-      } catch { 
-        json = text; 
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = text;
       }
       return { res: fetchRes, json };
     };
 
     const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
-    
+
     // Primary attempt: POST /client/position/modify
     const primaryUrl = `${API_BASE}/client/position/modify`;
     const primary = await doFetch(primaryUrl, {
@@ -668,18 +668,18 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
     // Authenticate with MetaAPI to get access token
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     if (!mt5Account.password) {
       return res.status(400).json({
         success: false,
@@ -696,7 +696,7 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         DeviceId: `web_positions_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -778,9 +778,9 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         closedParams.set('ToDate', '2100-01-01');
         closedParams.set('pageSize', '10000');
         closedParams.set('PageSize', '10000');
-        
+
         const closedUrl = `${API_BASE}/client/tradehistory/trades?${closedParams.toString()}`;
-        
+
         // Tradehistory API may not require Authorization header (as per zuperior-terminal)
         // Try with auth first, fallback without if needed
         const closedResponse = await fetch(closedUrl, {
@@ -799,20 +799,20 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
             allTrades = closedData;
           } else if (closedData && typeof closedData === 'object') {
             allTrades = closedData.Items ||
-                       closedData.Data ||
-                       closedData.data ||
-                       closedData.trades ||
-                       closedData.items ||
-                       closedData.results ||
-                       closedData.Results ||
-                       closedData.Trades ||
-                       closedData.closedTrades ||
-                       closedData.ClosedTrades ||
-                       closedData.tradeHistory ||
-                       closedData.TradeHistory ||
-                       [];
+              closedData.Data ||
+              closedData.data ||
+              closedData.trades ||
+              closedData.items ||
+              closedData.results ||
+              closedData.Results ||
+              closedData.Trades ||
+              closedData.closedTrades ||
+              closedData.ClosedTrades ||
+              closedData.tradeHistory ||
+              closedData.TradeHistory ||
+              [];
           }
-          
+
           // Filter for closed trades - match zuperior-terminal logic
           // A closed position must have:
           // 1. Valid OrderId or DealId > 0
@@ -825,17 +825,17 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
             // Get identifiers
             const orderId = trade.OrderId ?? trade.orderId ?? trade.DealId ?? trade.dealId ?? 0;
             const symbol = (trade.Symbol || trade.symbol || '').trim();
-            
+
             // Get price (could be Price, ClosePrice, or OpenPrice)
             const price = trade.Price ?? trade.price ?? trade.ClosePrice ?? trade.closePrice ?? trade.PriceClose ?? trade.priceClose ?? trade.OpenPrice ?? trade.openPrice ?? 0;
-            
+
             // Get volume
             const volumeLots = trade.VolumeLots ?? trade.volumeLots ?? trade.Volume ?? trade.volume ?? 0;
-            
+
             // Get P/L (Profit)
             const profit = trade.Profit ?? trade.profit ?? trade.PnL ?? trade.pnl ?? 0;
             const profitNum = Number(profit);
-            
+
             // Basic validation for closed positions (matching zuperior-terminal)
             const hasValidOrderId = Number(orderId) > 0 && !isNaN(Number(orderId));
             const hasValidSymbol = symbol && symbol.length > 0;
@@ -843,7 +843,7 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
             const hasValidVolume = Number(volumeLots) > 0 && !isNaN(Number(volumeLots));
             // Only include trades with non-zero P/L (Profit > 0 or Profit < 0)
             const hasNonZeroProfit = Number.isFinite(profitNum) && profitNum !== 0;
-            
+
             return hasValidOrderId && hasValidSymbol && hasValidPrice && hasValidVolume && hasNonZeroProfit;
           });
         }

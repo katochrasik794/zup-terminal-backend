@@ -192,8 +192,8 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     if (CLIENT_LOGIN_PATH.startsWith('/api/')) {
       CLIENT_LOGIN_PATH = CLIENT_LOGIN_PATH.replace(/^\/api/, '');
     }
-    const loginUrl = CLIENT_LOGIN_PATH.startsWith('http') 
-      ? CLIENT_LOGIN_PATH 
+    const loginUrl = CLIENT_LOGIN_PATH.startsWith('http')
+      ? CLIENT_LOGIN_PATH
       : CLIENT_LOGIN_PATH.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH}`;
@@ -227,7 +227,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
 
       if (loginResponse.ok) {
         const loginData = await loginResponse.json() as any;
-        
+
         // Check for Token (capital T) first, as that's what the API returns
         const accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.data?.accessToken || loginData?.token;
 
@@ -347,19 +347,19 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
     // Get client access token from MetaAPI
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     // Remove /api prefix if present (since LIVE_API_URL already has it)
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     let accessToken: string | null = null;
     try {
       const loginPayload = {
@@ -368,7 +368,7 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
         DeviceId: `web_device_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -387,7 +387,7 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
     // Try to fetch from MetaAPI if we have a token
     if (accessToken) {
       const profileUrl = `https://metaapi.zuperior.com/api/Users/${accountId}/GetClientBalance`;
-      
+
       try {
         const response = await fetch(profileUrl, {
           method: 'GET',
@@ -400,7 +400,7 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
 
         if (response.ok) {
           const result = await response.json() as any;
-          
+
           // Handle different response formats
           let balanceData = result?.data || result?.Data || result;
           if (balanceData && typeof balanceData === 'object' && !balanceData.Balance && !balanceData.balance) {

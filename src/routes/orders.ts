@@ -59,18 +59,18 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
     // Authenticate with MetaAPI to get access token
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     let accessToken: string | null = null;
     try {
       const loginPayload = {
@@ -79,7 +79,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
         DeviceId: `web_order_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,18 +108,18 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
     // Place market order via MetaAPI
     // Normalize symbol (remove / if present)
     const normalizedSymbol = symbol.replace('/', '');
-    
+
     // Convert volume: frontend sends in lots, API expects in lots * 100
     // 0.01 lots = 1 unit (as per zuperior-terminal implementation)
     const volumeInUnits = Math.round(parseFloat(volume) * 100);
-    
+
     // Use different endpoints for buy vs sell (as per zuperior-terminal)
     // Buy: /client/trade, Sell: /client/trade-sell
     // The endpoint itself determines buy vs sell, no Action field needed
     // AccountId is passed as query parameter, not in body
     const tradePath = side === 'sell' ? 'trade-sell' : 'trade';
     const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${tradePath}?account_id=${encodeURIComponent(accountId)}`;
-    
+
     // Build payload matching zuperior-terminal format (lowercase field names, no Action/AccountId fields)
     const orderPayload: any = {
       symbol: normalizedSymbol,
@@ -132,10 +132,10 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
     const hasTP = takeProfit !== undefined && takeProfit !== null && parseFloat(String(takeProfit)) > 0;
     orderPayload.stopLoss = hasSL ? parseFloat(String(stopLoss)) : 0;
     orderPayload.takeProfit = hasTP ? parseFloat(String(takeProfit)) : 0;
-    
+
     // Add comment (optional)
     orderPayload.comment = side === 'sell' ? 'Sell' : 'Buy';
-    
+
     try {
       const orderResponse = await fetch(orderUrl, {
         method: 'POST',
@@ -262,18 +262,18 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     // Authenticate with MetaAPI
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     let accessToken: string | null = null;
     try {
       const loginPayload = {
@@ -282,7 +282,7 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
         DeviceId: `web_pending_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -311,10 +311,10 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     // Place pending order via MetaAPI
     // Use symbol as-is (matching zuperior-terminal - they use String(symbol) without normalization)
     const symbolStr = String(symbol);
-    
+
     // Convert volume: frontend sends in lots, API expects in lots * 100
     const volumeInUnits = Math.round(parseFloat(volume) * 100);
-    
+
     // Build payload matching zuperior-terminal format exactly
     // Always include all fields, even if 0 (matching zuperior-terminal)
     const orderPayload: any = {
@@ -334,7 +334,7 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
       4: 'buy-stop',     // Buy Stop
       5: 'sell-stop',    // Sell Stop
     };
-    
+
     const endpoint = endpointMap[type];
     if (!endpoint) {
       return res.status(400).json({
@@ -342,10 +342,10 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
         message: `Invalid order type: ${type}`,
       });
     }
-    
+
     // Add account_id as query parameter (matching zuperior-terminal pattern)
     const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${endpoint}?account_id=${encodeURIComponent(accountId)}`;
-    
+
     // Log the request for debugging (especially for stop orders)
     console.log('[Orders] Placing pending order:', {
       endpoint,
@@ -354,7 +354,7 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
       orderType: orderType,
       side: side,
     });
-    
+
     try {
       const orderResponse = await fetch(orderUrl, {
         method: 'POST',
@@ -367,7 +367,7 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
 
       const responseText = await orderResponse.text().catch(() => '');
       let orderData: any = null;
-      
+
       if (responseText && responseText.trim()) {
         try {
           orderData = JSON.parse(responseText);
@@ -389,7 +389,7 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
           orderData = { message: orderResponse.statusText || 'Empty response from server' };
         }
       }
-      
+
       // Log the full response for debugging
       console.log('[Orders] API Response:', {
         status: orderResponse.status,
@@ -408,17 +408,17 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
           responseData: orderData,
           payload: orderPayload,
         });
-        
+
         // Extract error message from various possible fields
-        const errorMessage = orderData?.message || 
-                            orderData?.Message || 
-                            orderData?.error || 
-                            orderData?.Error ||
-                            orderData?.ErrorMessage ||
-                            orderData?.errorMessage ||
-                            orderResponse.statusText || 
-                            'Failed to place pending order';
-        
+        const errorMessage = orderData?.message ||
+          orderData?.Message ||
+          orderData?.error ||
+          orderData?.Error ||
+          orderData?.ErrorMessage ||
+          orderData?.errorMessage ||
+          orderResponse.statusText ||
+          'Failed to place pending order';
+
         return res.status(orderResponse.status).json({
           success: false,
           message: errorMessage,
@@ -491,18 +491,18 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
     // Authenticate with MetaAPI
     const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
     const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
+
     let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
     if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
       CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
     }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
       : CLIENT_LOGIN_PATH_clean.startsWith('/')
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
+
     let accessToken: string | null = null;
     try {
       const loginPayload = {
@@ -511,7 +511,7 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
         DeviceId: `web_modify_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
-      
+
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -557,7 +557,7 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
     }
 
     const modifyUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Orders/ModifyPendingOrder`;
-    
+
     try {
       const modifyResponse = await fetch(modifyUrl, {
         method: 'PUT',
