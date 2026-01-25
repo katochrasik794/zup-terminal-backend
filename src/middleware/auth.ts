@@ -27,7 +27,6 @@ export function authenticateToken(
       : req.cookies?.token;
 
   if (!token) {
-    console.error('[Auth Middleware] No token provided. Headers:', req.headers.authorization, 'Cookies:', req.cookies);
     res.status(401).json({
       success: false,
       message: 'Unauthorized. Please log in again.',
@@ -36,10 +35,8 @@ export function authenticateToken(
     return;
   }
 
-  console.log('[Auth Middleware] Token received, verifying...');
   const payload = verifyToken(token);
   if (!payload) {
-    console.error('[Auth Middleware] Token verification failed. Token:', token.substring(0, 20) + '...');
     res.status(401).json({
       success: false,
       message: 'Invalid or expired token. Please log in again.',
@@ -47,8 +44,6 @@ export function authenticateToken(
     });
     return;
   }
-
-  console.log('[Auth Middleware] Token verified successfully. UserId:', payload.userId);
 
   // Attach user to request
   req.user = payload;

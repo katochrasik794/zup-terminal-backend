@@ -78,7 +78,6 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
       }
     } catch (err) {
-      console.error('[Positions] MetaAPI login error:', err);
       return res.status(500).json({
         success: false,
         message: 'Failed to authenticate with MetaAPI',
@@ -151,7 +150,6 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         closedParams.set('PageSize', '10000');
         
         const closedUrl = `${API_BASE}/client/tradehistory/trades?${closedParams.toString()}`;
-        console.log('[Positions] Fetching closed positions from:', closedUrl);
         
         // Tradehistory API may not require Authorization header (as per zuperior-terminal)
         // Try with auth first, fallback without if needed
@@ -185,27 +183,6 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
                        [];
           }
           
-          console.log('[Positions] Extracted trades from response:', allTrades.length);
-          
-          // Log sample trade structure for debugging
-          if (allTrades.length > 0) {
-            const sample = allTrades[0];
-            console.log('[Positions] Sample trade structure:', {
-              keys: Object.keys(sample),
-              OrderId: sample.OrderId,
-              DealId: sample.DealId,
-              Symbol: sample.Symbol,
-              Price: sample.Price,
-              ClosePrice: sample.ClosePrice,
-              OpenPrice: sample.OpenPrice,
-              VolumeLots: sample.VolumeLots,
-              Volume: sample.Volume,
-              CloseTime: sample.CloseTime,
-              OpenTradeTime: sample.OpenTradeTime,
-              Profit: sample.Profit,
-            });
-          }
-          
           // Filter for closed trades - match zuperior-terminal logic
           // A closed position must have:
           // 1. Valid OrderId or DealId > 0
@@ -237,37 +214,10 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
             // Only include trades with non-zero P/L (Profit > 0 or Profit < 0)
             const hasNonZeroProfit = Number.isFinite(profitNum) && profitNum !== 0;
             
-            const isValid = hasValidOrderId && hasValidSymbol && hasValidPrice && hasValidVolume && hasNonZeroProfit;
-            
-            // Log first few invalid trades for debugging
-            if (!isValid && index < 5) {
-              console.log(`[Positions] Trade ${index} filtered out:`, {
-                hasValidOrderId,
-                orderId,
-                hasValidSymbol,
-                symbol,
-                hasValidPrice,
-                price,
-                hasValidVolume,
-                volumeLots,
-                hasNonZeroProfit,
-                profit,
-              });
-            }
-            
-            return isValid;
-          });
-          
-          console.log('[Positions] Closed positions fetched:', closedPositions.length, 'from', allTrades.length, 'total trades');
-        } else {
-          const errorText = await closedResponse.text().catch(() => '');
-          console.error('[Positions] Failed to fetch closed positions', { 
-            status: closedResponse.status, 
-            error: errorText.substring(0, 500) 
+            return hasValidOrderId && hasValidSymbol && hasValidPrice && hasValidVolume && hasNonZeroProfit;
           });
         }
       } catch (err) {
-        console.error('[Positions] Error fetching closed positions:', err);
         // Continue with empty array
       }
 
@@ -596,27 +546,33 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     };
 
     try {
-      // Try primary method: DELETE
+      // Try primary method: DELETE (fastest)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+      
       const primaryResponse = await fetch(primaryUrl, {
         method: 'DELETE',
         headers: baseHeaders,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (primaryResponse.ok || primaryResponse.status === 204) {
-        const primaryData = await primaryResponse.json().catch(() => ({}));
         return res.json({
           success: true,
-          data: primaryData,
           message: 'Position closed successfully',
         });
       }
 
-      // Fallback 1: POST /client/position/close
-      if (primaryResponse.status === 415 || primaryResponse.status === 405 || primaryResponse.status >= 400) {
+      // Only try fallback for specific error codes
+      if (primaryResponse.status === 415 || primaryResponse.status === 405) {
         const fallback1Url = `${API_BASE}/client/position/close`;
         const fallback1Payload: any = { positionId: positionIdNum };
         if (hasVolume) fallback1Payload.volume = Number(volume);
 
+        const controller2 = new AbortController();
+        const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
+        
         const fallback1Response = await fetch(fallback1Url, {
           method: 'POST',
           headers: {
@@ -624,78 +580,25 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
             ...baseHeaders,
           },
           body: JSON.stringify(fallback1Payload),
+          signal: controller2.signal,
         });
+        clearTimeout(timeoutId2);
 
         if (fallback1Response.ok || fallback1Response.status === 204) {
-          const fallback1Data = await fallback1Response.json().catch(() => ({}));
           return res.json({
             success: true,
-            data: fallback1Data,
             message: 'Position closed successfully',
           });
         }
-
-        // Fallback 2: POST /Trading/position/close (PascalCase)
-        const fallback2Url = `${API_BASE}/Trading/position/close`;
-        const fallback2Payload: any = { 
-          Login: parseInt(accountId, 10), 
-          PositionId: positionIdNum 
-        };
-        if (hasVolume) fallback2Payload.Volume = Number(volume);
-
-        const fallback2Response = await fetch(fallback2Url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...baseHeaders,
-          },
-          body: JSON.stringify(fallback2Payload),
-        });
-
-        if (fallback2Response.ok || fallback2Response.status === 204) {
-          const fallback2Data = await fallback2Response.json().catch(() => ({}));
-          return res.json({
-            success: true,
-            data: fallback2Data,
-            message: 'Position closed successfully',
-          });
-        }
-
-        // All methods failed
-        const errorText = await fallback2Response.text().catch(() => '');
-        let errorData: any = {};
-        if (errorText) {
-          try {
-            errorData = JSON.parse(errorText);
-          } catch {
-            errorData = {};
-          }
-        }
-        const errorMessage = errorData?.message || errorData?.Message || errorData?.error || 'Failed to close position';
-
-        return res.status(fallback2Response.status || 500).json({
-          success: false,
-          message: errorMessage,
-          error: errorData,
-        });
       }
 
-      // Primary method failed
+      // Return error immediately
       const errorText = await primaryResponse.text().catch(() => '');
-      let errorData: any = {};
-      if (errorText) {
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = {};
-        }
-      }
-      const errorMessage = errorData?.message || errorData?.Message || errorData?.error || 'Failed to close position';
+      const errorMessage = errorText ? errorText.substring(0, 200) : 'Failed to close position';
       
       return res.status(primaryResponse.status || 500).json({
         success: false,
         message: errorMessage,
-        error: errorData,
       });
     } catch (err) {
       return res.status(500).json({

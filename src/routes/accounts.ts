@@ -70,7 +70,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('[Accounts API] Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch accounts',
@@ -147,7 +146,6 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
  * IMPORTANT: This route must be defined BEFORE /:accountId/profile to avoid route conflicts
  */
 router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request, res: Response) => {
-  console.log(`[MetaAPI Login] Route hit - accountId: ${req.params.accountId}, userId: ${req.user?.userId}`);
   try {
     const userId = req.user?.userId;
     const accountId = String(req.params.accountId);
@@ -160,8 +158,6 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     }
 
     // Get MT5 account with password
-    console.log(`[MetaAPI Login] Searching for accountId: "${accountId}" (type: ${typeof accountId}), userId: "${userId}" (type: ${typeof userId})`);
-    
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         accountId: accountId,
@@ -176,47 +172,15 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
       }
     });
 
-    console.log(`[MetaAPI Login] Database query result:`, {
-      found: !!mt5Account,
-      accountId: mt5Account?.accountId,
-      userId: mt5Account?.userId,
-      hasPassword: !!mt5Account?.password,
-      passwordLength: mt5Account?.password?.length || 0,
-      passwordFirstChars: mt5Account?.password ? `${mt5Account.password.substring(0, 3)}...` : 'N/A',
-    });
-
-    // Also try to find ALL accounts for this user to debug
-    const allUserAccounts = await prisma.mT5Account.findMany({
-      where: {
-        userId: userId,
-        archived: false,
-      },
-      select: {
-        accountId: true,
-        password: true,
-      }
-    });
-    console.log(`[MetaAPI Login] All accounts for userId ${userId}:`, allUserAccounts.map(acc => ({
-      accountId: acc.accountId,
-      hasPassword: !!acc.password,
-      passwordLength: acc.password?.length || 0,
-    })));
-
     if (!mt5Account || !mt5Account.password) {
-      console.error(`[MetaAPI Login] Account not found or password missing for accountId: ${accountId}`);
-      console.error(`[MetaAPI Login] Available accountIds for this user:`, allUserAccounts.map(a => a.accountId));
       return res.status(404).json({
         success: false,
         message: 'Account not found or password not configured',
       });
     }
 
-    // Verify we got the right account
-    console.log(`[MetaAPI Login] Using password for accountId: ${mt5Account.accountId}, password length: ${mt5Account.password.length}`);
-    
     // Trim password to remove any whitespace
     const cleanedPassword = mt5Account.password.trim();
-    console.log(`[MetaAPI Login] Password after trim - original length: ${mt5Account.password.length}, trimmed length: ${cleanedPassword.length}`);
 
     // Authenticate with MetaAPI
     // LIVE_API_URL should already include /api (e.g., https://metaapi.zuperior.com/api)
@@ -234,13 +198,9 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH}`;
 
-    console.log(`[MetaAPI Login] Authenticating account ${accountId} at ${loginUrl}`);
-    console.log(`[MetaAPI Login] Using CLIENT_LOGIN_PATH from env: ${process.env.CLIENT_LOGIN_PATH || 'NOT SET'}`);
-    
     // Parse accountId as integer
     const accountIdInt = parseInt(accountId, 10);
     if (isNaN(accountIdInt)) {
-      console.error(`[MetaAPI Login] Invalid accountId format: ${accountId}`);
       return res.status(400).json({
         success: false,
         message: 'Invalid account ID format',
@@ -251,13 +211,6 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     const deviceId = `web_device_${Date.now()}`;
     const deviceType = 'web';
 
-    console.log(`[MetaAPI Login] Authenticating with payload:`, {
-      AccountId: accountIdInt,
-      Password: '***',
-      DeviceId: deviceId,
-      DeviceType: deviceType,
-    });
-
     try {
       const requestBody = {
         AccountId: accountIdInt,
@@ -266,25 +219,19 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
         DeviceType: deviceType,
       };
 
-      console.log(`[MetaAPI Login] Sending request to MetaAPI...`);
-
       const loginResponse = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       });
 
-      console.log(`[MetaAPI Login] Response status: ${loginResponse.status} for account ${accountId}`);
-
       if (loginResponse.ok) {
         const loginData = await loginResponse.json() as any;
-        console.log(`[MetaAPI Login] Response data keys:`, Object.keys(loginData));
         
         // Check for Token (capital T) first, as that's what the API returns
         const accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.data?.accessToken || loginData?.token;
 
         if (accessToken) {
-          console.log(`[MetaAPI Login] Successfully obtained token for account ${accountId}`);
           return res.json({
             success: true,
             data: {
@@ -292,35 +239,20 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
               accountId: accountId,
             },
           });
-        } else {
-          console.error(`[MetaAPI Login] No access token in response. Full response:`, JSON.stringify(loginData, null, 2));
-        }
-      } else {
-        const errorText = await loginResponse.text().catch(() => '');
-        console.error(`[MetaAPI Login] Failed with status ${loginResponse.status}:`, errorText);
-        
-        // Try to parse error as JSON
-        try {
-          const errorData = JSON.parse(errorText);
-          console.error(`[MetaAPI Login] Error details:`, JSON.stringify(errorData, null, 2));
-        } catch {
-          // Not JSON, use text
         }
       }
 
       return res.status(401).json({
         success: false,
-        message: 'Failed to authenticate with MetaAPI. Check backend logs for details.',
+        message: 'Failed to authenticate with MetaAPI',
       });
     } catch (err) {
-      console.error(`[MetaAPI Login] Error for ${accountId}:`, err);
       return res.status(500).json({
         success: false,
         message: 'Failed to authenticate with MetaAPI',
       });
     }
   } catch (error) {
-    console.error('[MetaAPI Login] Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -468,7 +400,6 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
 
         if (response.ok) {
           const result = await response.json() as any;
-          console.log(`[Backend Profile] MetaAPI response for ${accountId}:`, result);
           
           // Handle different response formats
           let balanceData = result?.data || result?.Data || result;
@@ -511,17 +442,13 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
               }
             });
           }
-        } else {
-          const errorText = await response.text().catch(() => 'No response body');
-          console.warn(`[Backend Profile] MetaAPI returned ${response.status}:`, errorText.substring(0, 200));
         }
       } catch (err) {
-        console.error(`[Backend Profile] Error calling MetaAPI:`, err);
+        // Silent fail - use database data
       }
     }
 
     // Fallback to database data
-    console.log(`[Backend Profile] Using database fallback for ${accountId}`);
     const accountType = (mt5Account.group || '').toLowerCase().includes('demo') ? 'Demo' : 'Live';
     return res.json({
       success: true,
@@ -555,7 +482,6 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
       }
     });
   } catch (error) {
-    console.error('[Account Profile API] Global Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch account profile',
