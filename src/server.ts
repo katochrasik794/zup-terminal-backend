@@ -8,6 +8,7 @@ import authRoutes from './routes/auth';
 import accountRoutes from './routes/accounts';
 import instrumentRoutes from './routes/instruments';
 import positionRoutes from './routes/positions';
+import orderRoutes from './routes/orders';
 
 // Validate environment variables (with error handling)
 try {
@@ -46,6 +47,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/instruments', instrumentRoutes);
 app.use('/api/positions', positionRoutes);
+app.use('/api/orders', orderRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

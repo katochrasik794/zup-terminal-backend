@@ -1,0 +1,522 @@
+import { Router, Request, Response } from 'express';
+import { prisma } from '../lib/db';
+import { authenticateToken } from '../middleware/auth';
+
+const router = Router();
+
+/**
+ * POST /api/orders/market
+ * Place a market order (buy or sell)
+ */
+router.post('/market', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { accountId, symbol, side, volume, stopLoss, takeProfit } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    if (!accountId || !symbol || !side || !volume) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: accountId, symbol, side, volume',
+      });
+    }
+
+    // Validate side
+    if (side !== 'buy' && side !== 'sell') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid side. Must be "buy" or "sell"',
+      });
+    }
+
+    // Get MT5 account from database
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        accountId: String(accountId),
+        archived: false,
+      },
+    });
+
+    if (!mt5Account) {
+      return res.status(404).json({
+        success: false,
+        message: 'MT5 account not found',
+      });
+    }
+
+    // Authenticate with MetaAPI to get access token
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
+      ? CLIENT_LOGIN_PATH_clean 
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+    
+    let accessToken: string | null = null;
+    try {
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_order_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      console.error('[Orders] MetaAPI login error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Place market order via MetaAPI
+    // Normalize symbol (remove / if present)
+    const normalizedSymbol = symbol.replace('/', '');
+    
+    // Convert volume: frontend sends in lots, API expects in lots * 100
+    // 0.01 lots = 1 unit (as per zuperior-terminal implementation)
+    const volumeInUnits = Math.round(parseFloat(volume) * 100);
+    
+    // Use different endpoints for buy vs sell (as per zuperior-terminal)
+    // Buy: /client/trade, Sell: /client/trade-sell
+    // The endpoint itself determines buy vs sell, no Action field needed
+    // AccountId is passed as query parameter, not in body
+    const tradePath = side === 'sell' ? 'trade-sell' : 'trade';
+    const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${tradePath}?account_id=${encodeURIComponent(accountId)}`;
+    
+    // Build payload matching zuperior-terminal format (lowercase field names, no Action/AccountId fields)
+    const orderPayload: any = {
+      symbol: normalizedSymbol,
+      volume: volumeInUnits,
+      price: 0, // Market orders use price: 0
+    };
+
+    // Add TP/SL if provided (use 0 if not set, matching zuperior-terminal)
+    const hasSL = stopLoss !== undefined && stopLoss !== null && parseFloat(String(stopLoss)) > 0;
+    const hasTP = takeProfit !== undefined && takeProfit !== null && parseFloat(String(takeProfit)) > 0;
+    orderPayload.stopLoss = hasSL ? parseFloat(String(stopLoss)) : 0;
+    orderPayload.takeProfit = hasTP ? parseFloat(String(takeProfit)) : 0;
+    
+    // Add comment (optional)
+    orderPayload.comment = side === 'sell' ? 'Sell' : 'Buy';
+    
+    try {
+      const orderResponse = await fetch(orderUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(orderPayload),
+      });
+
+      let orderData: any;
+      try {
+        orderData = await orderResponse.json();
+      } catch (e) {
+        // If response is not JSON, use text
+        const text = await orderResponse.text();
+        orderData = { message: text || 'Unknown error' };
+      }
+
+      if (!orderResponse.ok) {
+        console.error('[Orders] Market order failed:', {
+          status: orderResponse.status,
+          statusText: orderResponse.statusText,
+          data: orderData,
+          payload: orderPayload,
+        });
+        return res.status(orderResponse.status).json({
+          success: false,
+          message: orderData?.message || orderData?.Message || orderData?.error || 'Failed to place market order',
+          error: orderData,
+        });
+      }
+
+      console.log('[Orders] Market order placed successfully:', orderData);
+
+      return res.json({
+        success: true,
+        data: orderData,
+      });
+    } catch (err) {
+      console.error('[Orders] Market order error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to place market order',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  } catch (error) {
+    console.error('[Orders] Market order error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/orders/pending
+ * Place a pending order (limit or stop)
+ */
+router.post('/pending', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { accountId, symbol, side, volume, price, orderType, stopLoss, takeProfit } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    if (!accountId || !symbol || !side || !volume || !price || !orderType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: accountId, symbol, side, volume, price, orderType',
+      });
+    }
+
+    // Validate side
+    if (side !== 'buy' && side !== 'sell') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid side. Must be "buy" or "sell"',
+      });
+    }
+
+    // Validate orderType: 'limit' = Buy Limit (2) or Sell Limit (3), 'stop' = Buy Stop (4) or Sell Stop (5)
+    // Map: buy + limit = 2, sell + limit = 3, buy + stop = 4, sell + stop = 5
+    let type: number;
+    if (side === 'buy' && orderType === 'limit') {
+      type = 2; // Buy Limit
+    } else if (side === 'sell' && orderType === 'limit') {
+      type = 3; // Sell Limit
+    } else if (side === 'buy' && orderType === 'stop') {
+      type = 4; // Buy Stop
+    } else if (side === 'sell' && orderType === 'stop') {
+      type = 5; // Sell Stop
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid orderType. Must be "limit" or "stop"',
+      });
+    }
+
+    // Get MT5 account from database
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        accountId: String(accountId),
+        archived: false,
+      },
+    });
+
+    if (!mt5Account) {
+      return res.status(404).json({
+        success: false,
+        message: 'MT5 account not found',
+      });
+    }
+
+    // Authenticate with MetaAPI
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
+      ? CLIENT_LOGIN_PATH_clean 
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+    
+    let accessToken: string | null = null;
+    try {
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_pending_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      console.error('[Orders] MetaAPI login error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Place pending order via MetaAPI
+    const normalizedSymbol = symbol.replace('/', '');
+    
+    // Convert volume: frontend sends in lots, API expects in lots * 100
+    const volumeInUnits = Math.round(parseFloat(volume) * 100);
+    
+    const orderPayload: any = {
+      Symbol: normalizedSymbol,
+      Type: type,
+      Volume: volumeInUnits,
+      PriceOrder: parseFloat(price),
+    };
+
+    // Add TP/SL if provided
+    if (takeProfit && parseFloat(takeProfit) > 0) {
+      orderPayload.PriceTP = parseFloat(takeProfit);
+    }
+    if (stopLoss && parseFloat(stopLoss) > 0) {
+      orderPayload.PriceSL = parseFloat(stopLoss);
+    }
+
+    const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Orders/PlacePendingOrder`;
+    
+    try {
+      const orderResponse = await fetch(orderUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(orderPayload),
+      });
+
+      const orderData = await orderResponse.json();
+
+      if (!orderResponse.ok) {
+        return res.status(orderResponse.status).json({
+          success: false,
+          message: orderData?.message || orderData?.Message || 'Failed to place pending order',
+          error: orderData,
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: orderData,
+      });
+    } catch (err) {
+      console.error('[Orders] Pending order error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to place pending order',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  } catch (error) {
+    console.error('[Orders] Pending order error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * PUT /api/orders/pending/:orderId
+ * Modify a pending order
+ */
+router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { orderId } = req.params;
+    const { accountId, price, stopLoss, takeProfit, volume } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    if (!accountId || !orderId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: accountId, orderId',
+      });
+    }
+
+    // Get MT5 account from database
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        accountId: String(accountId),
+        archived: false,
+      },
+    });
+
+    if (!mt5Account) {
+      return res.status(404).json({
+        success: false,
+        message: 'MT5 account not found',
+      });
+    }
+
+    // Authenticate with MetaAPI
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
+      ? CLIENT_LOGIN_PATH_clean 
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+    
+    let accessToken: string | null = null;
+    try {
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_modify_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      console.error('[Orders] MetaAPI login error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Modify pending order via MetaAPI
+    const modifyPayload: any = {
+      OrderId: parseInt(orderId, 10),
+    };
+
+    if (price !== undefined) {
+      modifyPayload.PriceOrder = parseFloat(price);
+    }
+    if (volume !== undefined) {
+      // Convert volume: frontend sends in lots, API expects in lots * 100
+      modifyPayload.Volume = Math.round(parseFloat(volume) * 100);
+    }
+    if (takeProfit !== undefined) {
+      modifyPayload.PriceTP = takeProfit === null || takeProfit === 0 ? 0 : parseFloat(takeProfit);
+    }
+    if (stopLoss !== undefined) {
+      modifyPayload.PriceSL = stopLoss === null || stopLoss === 0 ? 0 : parseFloat(stopLoss);
+    }
+
+    const modifyUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Orders/ModifyPendingOrder`;
+    
+    try {
+      const modifyResponse = await fetch(modifyUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(modifyPayload),
+      });
+
+      const modifyData = await modifyResponse.json();
+
+      if (!modifyResponse.ok) {
+        return res.status(modifyResponse.status).json({
+          success: false,
+          message: modifyData?.message || modifyData?.Message || 'Failed to modify pending order',
+          error: modifyData,
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: modifyData,
+      });
+    } catch (err) {
+      console.error('[Orders] Modify order error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to modify pending order',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  } catch (error) {
+    console.error('[Orders] Modify order error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+export default router;
