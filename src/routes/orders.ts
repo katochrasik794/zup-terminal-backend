@@ -4,6 +4,11 @@ import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
+// Test route to verify router is working
+router.get('/test', (req: Request, res: Response) => {
+  res.json({ success: true, message: 'Orders router is working' });
+});
+
 /**
  * POST /api/orders/market
  * Place a market order (buy or sell)
@@ -193,6 +198,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
  * Place a pending order (limit or stop)
  */
 router.post('/pending', authenticateToken, async (req: Request, res: Response) => {
+  console.log('[Orders] POST /api/orders/pending hit', { body: req.body });
   try {
     const userId = req.user?.userId;
     const { accountId, symbol, side, volume, price, orderType, stopLoss, takeProfit } = req.body;
@@ -308,11 +314,11 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     // Convert volume: frontend sends in lots, API expects in lots * 100
     const volumeInUnits = Math.round(parseFloat(volume) * 100);
     
+    // Build payload matching zuperior-terminal format
     const orderPayload: any = {
       Symbol: normalizedSymbol,
-      Type: type,
+      Price: parseFloat(price),  // Use Price instead of PriceOrder
       Volume: volumeInUnits,
-      PriceOrder: parseFloat(price),
     };
 
     // Add TP/SL if provided
@@ -323,7 +329,23 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
       orderPayload.PriceSL = parseFloat(stopLoss);
     }
 
-    const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Orders/PlacePendingOrder`;
+    // Use specific endpoints for each order type (matching zuperior-terminal)
+    const endpointMap: Record<number, string> = {
+      2: 'buy-limit',    // Buy Limit
+      3: 'sell-limit',   // Sell Limit
+      4: 'buy-stop',     // Buy Stop
+      5: 'sell-stop',    // Sell Stop
+    };
+    
+    const endpoint = endpointMap[type];
+    if (!endpoint) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid order type: ${type}`,
+      });
+    }
+    
+    const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${endpoint}`;
     
     try {
       const orderResponse = await fetch(orderUrl, {
@@ -335,12 +357,41 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
         body: JSON.stringify(orderPayload),
       });
 
-      const orderData = await orderResponse.json();
+      let orderData: any;
+      try {
+        const responseText = await orderResponse.text();
+        if (responseText && responseText.trim()) {
+          try {
+            orderData = JSON.parse(responseText);
+          } catch (parseErr) {
+            // If JSON parsing fails, use the raw text
+            orderData = {
+              message: responseText || orderResponse.statusText || 'Failed to parse response',
+              rawResponse: responseText,
+            };
+          }
+        } else {
+          // Empty response
+          if (orderResponse.ok) {
+            return res.json({
+              success: true,
+              data: {},
+            });
+          } else {
+            orderData = { message: orderResponse.statusText || 'Empty response from server' };
+          }
+        }
+      } catch (e) {
+        // If reading response fails completely
+        orderData = {
+          message: orderResponse.statusText || 'Failed to read response',
+        };
+      }
 
       if (!orderResponse.ok) {
         return res.status(orderResponse.status).json({
           success: false,
-          message: orderData?.message || orderData?.Message || 'Failed to place pending order',
+          message: orderData?.message || orderData?.Message || orderData?.error || 'Failed to place pending order',
           error: orderData,
         });
       }
