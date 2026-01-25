@@ -5,8 +5,439 @@ import { authenticateToken } from '../middleware/auth';
 const router = Router();
 
 /**
+ * POST /api/positions/close-all
+ * Close all positions for an account
+ * NOTE: This route must come BEFORE /:accountId to avoid route conflicts
+ */
+router.post('/close-all', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { accountId } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    if (!accountId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: accountId',
+      });
+    }
+
+    // Get MT5 account from database
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        accountId: String(accountId),
+        archived: false,
+      },
+    });
+
+    if (!mt5Account) {
+      return res.status(404).json({
+        success: false,
+        message: 'MT5 account not found',
+      });
+    }
+
+    // Authenticate with MetaAPI to get access token
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
+      ? CLIENT_LOGIN_PATH_clean 
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+    
+    let accessToken: string | null = null;
+    try {
+      if (!mt5Account.password) {
+        return res.status(400).json({
+          success: false,
+          message: 'MT5 account password not found',
+        });
+      }
+
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_closeall_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Close all positions via MetaAPI
+    // First, get all open positions
+    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
+    const positionsUrl = `${API_BASE}/client/Positions`;
+    
+    try {
+      // Get all positions
+      const positionsResponse = await fetch(positionsUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'AccountId': String(accountId),
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!positionsResponse.ok) {
+        return res.status(positionsResponse.status).json({
+          success: false,
+          message: 'Failed to fetch positions',
+        });
+      }
+
+      const positionsData = await positionsResponse.json() as any;
+      const positions = positionsData?.positions || positionsData?.data || positionsData || [];
+      
+      if (!Array.isArray(positions) || positions.length === 0) {
+        return res.json({
+          success: true,
+          data: { closed: 0, failed: 0 },
+          message: 'No positions to close',
+        });
+      }
+
+      // Close each position
+      const closeResults = await Promise.allSettled(
+        positions.map(async (pos: any) => {
+          const positionId = pos.PositionId || pos.positionId || pos.Id || pos.id;
+          if (!positionId) return { success: false, positionId: null, error: 'No position ID' };
+
+          const closeUrl = `${API_BASE}/client/position/${positionId}`;
+          try {
+            const closeResponse = await fetch(closeUrl, {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'AccountId': String(accountId),
+                'Accept': 'application/json',
+              },
+            });
+
+            if (closeResponse.ok || closeResponse.status === 204) {
+              return { success: true, positionId };
+            } else {
+              // Try fallback POST method
+              const fallbackUrl = `${API_BASE}/client/position/close`;
+              const fallbackResponse = await fetch(fallbackUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`,
+                  'AccountId': String(accountId),
+                },
+                body: JSON.stringify({ positionId }),
+              });
+
+              if (fallbackResponse.ok || fallbackResponse.status === 204) {
+                return { success: true, positionId };
+              }
+
+              const errorText = await fallbackResponse.text().catch(() => '');
+              return { success: false, positionId, error: errorText || 'Failed to close' };
+            }
+          } catch (err) {
+            return { success: false, positionId, error: err instanceof Error ? err.message : 'Unknown error' };
+          }
+        })
+      );
+
+      const closed = closeResults.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failed = closeResults.length - closed;
+
+      return res.json({
+        success: true,
+        data: { closed, failed, total: positions.length },
+        message: `Closed ${closed} position${closed !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to close all positions',
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/positions/:positionId/close
+ * Close a single position
+ * NOTE: This route must come BEFORE /:accountId to avoid route conflicts
+ */
+router.post('/:positionId/close', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { positionId } = req.params;
+    const { accountId, symbol, volume } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    if (!accountId || !positionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: accountId, positionId',
+      });
+    }
+
+    const positionIdNum = Number(positionId);
+    if (!Number.isFinite(positionIdNum) || positionIdNum <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid positionId',
+      });
+    }
+
+    // Get MT5 account from database
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        accountId: String(accountId),
+        archived: false,
+      },
+    });
+
+    if (!mt5Account) {
+      return res.status(404).json({
+        success: false,
+        message: 'MT5 account not found',
+      });
+    }
+
+    // Authenticate with MetaAPI to get access token
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
+      ? CLIENT_LOGIN_PATH_clean 
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+    
+    if (!mt5Account.password) {
+      return res.status(400).json({
+        success: false,
+        message: 'MT5 account password not found',
+      });
+    }
+
+    let accessToken: string | null = null;
+    try {
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_close_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Close position via MetaAPI
+    // Helper to fetch with timeout and parse (matching zuperior-terminal)
+    const doFetch = async (u: string, init: RequestInit, timeoutMs = 10000): Promise<{ res: globalThis.Response; json: any }> => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      let fetchRes: globalThis.Response;
+      let text = '';
+      try {
+        fetchRes = await fetch(u, { ...init, signal: ctrl.signal });
+        text = await fetchRes.text().catch(() => '');
+      } finally {
+        clearTimeout(t);
+      }
+      let json: any = null;
+      try { 
+        json = text ? JSON.parse(text) : null; 
+      } catch { 
+        json = text; 
+      }
+      return { res: fetchRes, json };
+    };
+
+    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
+    const hasVolume = volume && Number(volume) > 0;
+    const q = new URLSearchParams();
+    if (hasVolume) q.set('volume', String(volume));
+    
+    const primaryUrl = `${API_BASE}/client/position/${positionIdNum}${q.toString() ? `?${q.toString()}` : ''}`;
+    const baseHeaders: Record<string, string> = {
+      'Authorization': `Bearer ${accessToken}`,
+      ...(accountId ? { 'AccountId': String(accountId) } : {}),
+      'Accept': 'application/json',
+    };
+    
+    // Try primary method first: DELETE /client/position/{positionId}
+    const primary = await doFetch(primaryUrl, { method: 'DELETE', headers: baseHeaders }, 10000);
+    
+    // If primary succeeds, return immediately
+    if (primary.res.ok || primary.res.status === 204) {
+      return res.status(primary.res.status).json({ 
+        success: true, 
+        data: primary.json, 
+        message: 'Position closed successfully' 
+      });
+    }
+
+    // Fallback 1: POST /client/position/close with JSON payload (camelCase)
+    const shouldFallback1 = !primary.res.ok && (primary.res.status === 415 || primary.res.status === 405 || primary.res.status >= 400);
+    let fallback1: { res: globalThis.Response; json: any } | null = null;
+    if (shouldFallback1) {
+      const payload: any = { positionId: Number(positionIdNum) };
+      if (hasVolume) payload.volume = Number(volume);
+      const f1Url = `${API_BASE}/client/position/close`;
+      fallback1 = await doFetch(f1Url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...baseHeaders },
+        body: JSON.stringify(payload),
+      }, 10000);
+      
+      // If fallback1 succeeds, return immediately
+      if (fallback1.res.ok || fallback1.res.status === 204) {
+        return res.status(fallback1.res.status).json({ 
+          success: true, 
+          data: fallback1.json, 
+          message: 'Position closed successfully' 
+        });
+      }
+    }
+
+    // Fallback 2: POST /Trading/position/close with PascalCase payload (try if both failed)
+    const shouldFallback2 = !primary.res.ok && (!fallback1 || !fallback1.res.ok);
+    let fallback2: { res: globalThis.Response; json: any } | null = null;
+    if (shouldFallback2) {
+      const payload: any = { 
+        Login: parseInt(String(accountId), 10), 
+        PositionId: Number(positionIdNum) 
+      };
+      if (hasVolume) payload.Volume = Number(volume);
+      const f2Url = `${API_BASE}/Trading/position/close`;
+      fallback2 = await doFetch(f2Url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...baseHeaders },
+        body: JSON.stringify(payload),
+      }, 10000);
+    }
+
+    const final = fallback2 ?? fallback1 ?? primary;
+    
+    // Check for success - handle both HTTP status and response body (matching zuperior-terminal)
+    const isSuccess = final.res.ok || final.res.status === 204 || final.res.status === 200;
+    const responseSuccess = final.json?.success || final.json?.Success || final.json?.success === true || final.json?.Success === true;
+    
+    // If HTTP is OK but response says failure, treat as failure
+    if (isSuccess && responseSuccess !== false) {
+      // Success - return immediately
+      return res.status(final.res.status).json({ 
+        success: true, 
+        Success: true, // Include both formats for compatibility
+        data: final.json, 
+        message: 'Position closed successfully' 
+      });
+    }
+    
+    // Extract error message from response
+    let errorMessage = 'Failed to close position';
+    if (final.json) {
+      errorMessage = final.json.message || final.json.Message || final.json.error || final.json.Error || errorMessage;
+      // If error is a string, use it directly
+      if (typeof final.json === 'string') {
+        errorMessage = final.json;
+      }
+    }
+    
+    return res.status(final.res.status || 500).json({ 
+      success: false,
+      Success: false, // Include both formats for compatibility
+      message: errorMessage,
+      error: final.json,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
  * GET /api/positions/:accountId
  * Get all positions (open, pending, closed) for an account
+ * NOTE: This route must come AFTER /close-all and /:positionId/close to avoid route conflicts
  */
 router.get('/:accountId', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -58,10 +489,18 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
     
+    if (!mt5Account.password) {
+      return res.status(400).json({
+        success: false,
+        message: 'MT5 account password not found',
+      });
+    }
+
     let accessToken: string | null = null;
     try {
+      const accountIdStr = Array.isArray(accountId) ? accountId[0] : accountId;
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(accountIdStr, 10),
         Password: mt5Account.password.trim(),
         DeviceId: `web_positions_${userId}_${Date.now()}`,
         DeviceType: 'web',
@@ -232,378 +671,6 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
       return res.status(500).json({
         success: false,
         message: 'Failed to fetch positions',
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * POST /api/positions/close-all
- * Close all positions for an account
- * NOTE: This route must come BEFORE /:positionId/close to avoid route conflicts
- */
-router.post('/close-all', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.userId;
-    const { accountId } = req.body;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized',
-      });
-    }
-
-    if (!accountId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required field: accountId',
-      });
-    }
-
-    // Get MT5 account from database
-    const mt5Account = await prisma.mT5Account.findFirst({
-      where: {
-        userId: userId,
-        accountId: String(accountId),
-        archived: false,
-      },
-    });
-
-    if (!mt5Account) {
-      return res.status(404).json({
-        success: false,
-        message: 'MT5 account not found',
-      });
-    }
-
-    // Authenticate with MetaAPI to get access token
-    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
-    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
-    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
-    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
-      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
-    }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
-      : CLIENT_LOGIN_PATH_clean.startsWith('/')
-        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
-        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
-    let accessToken: string | null = null;
-    try {
-      const loginPayload = {
-        AccountId: parseInt(accountId, 10),
-        Password: mt5Account.password.trim(),
-        DeviceId: `web_closeall_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
-      
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
-
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
-      }
-    } catch (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to authenticate with MetaAPI',
-      });
-    }
-
-    if (!accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Failed to authenticate with MetaAPI',
-      });
-    }
-
-    // Close all positions via MetaAPI
-    // First, get all open positions
-    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
-    const positionsUrl = `${API_BASE}/client/Positions`;
-    
-    try {
-      // Get all positions
-      const positionsResponse = await fetch(positionsUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'AccountId': String(accountId),
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!positionsResponse.ok) {
-        return res.status(positionsResponse.status).json({
-          success: false,
-          message: 'Failed to fetch positions',
-        });
-      }
-
-      const positionsData = await positionsResponse.json() as any;
-      const positions = positionsData?.positions || positionsData?.data || positionsData || [];
-      
-      if (!Array.isArray(positions) || positions.length === 0) {
-        return res.json({
-          success: true,
-          data: { closed: 0, failed: 0 },
-          message: 'No positions to close',
-        });
-      }
-
-      // Close each position
-      const closeResults = await Promise.allSettled(
-        positions.map(async (pos: any) => {
-          const positionId = pos.PositionId || pos.positionId || pos.Id || pos.id;
-          if (!positionId) return { success: false, positionId: null, error: 'No position ID' };
-
-          const closeUrl = `${API_BASE}/client/position/${positionId}`;
-          try {
-            const closeResponse = await fetch(closeUrl, {
-              method: 'DELETE',
-              headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'AccountId': String(accountId),
-                'Accept': 'application/json',
-              },
-            });
-
-            if (closeResponse.ok || closeResponse.status === 204) {
-              return { success: true, positionId };
-            } else {
-              // Try fallback POST method
-              const fallbackUrl = `${API_BASE}/client/position/close`;
-              const fallbackResponse = await fetch(fallbackUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${accessToken}`,
-                  'AccountId': String(accountId),
-                },
-                body: JSON.stringify({ positionId }),
-              });
-
-              if (fallbackResponse.ok || fallbackResponse.status === 204) {
-                return { success: true, positionId };
-              }
-
-              const errorText = await fallbackResponse.text().catch(() => '');
-              return { success: false, positionId, error: errorText || 'Failed to close' };
-            }
-          } catch (err) {
-            return { success: false, positionId, error: err instanceof Error ? err.message : 'Unknown error' };
-          }
-        })
-      );
-
-      const closed = closeResults.filter(r => r.status === 'fulfilled' && r.value.success).length;
-      const failed = closeResults.length - closed;
-
-      return res.json({
-        success: true,
-        data: { closed, failed, total: positions.length },
-        message: `Closed ${closed} position${closed !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`,
-      });
-    } catch (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to close all positions',
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * POST /api/positions/:positionId/close
- * Close a single position
- */
-router.post('/:positionId/close', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.userId;
-    const { positionId } = req.params;
-    const { accountId, symbol, volume } = req.body;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized',
-      });
-    }
-
-    if (!accountId || !positionId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields: accountId, positionId',
-      });
-    }
-
-    const positionIdNum = Number(positionId);
-    if (!Number.isFinite(positionIdNum) || positionIdNum <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid positionId',
-      });
-    }
-
-    // Get MT5 account from database
-    const mt5Account = await prisma.mT5Account.findFirst({
-      where: {
-        userId: userId,
-        accountId: String(accountId),
-        archived: false,
-      },
-    });
-
-    if (!mt5Account) {
-      return res.status(404).json({
-        success: false,
-        message: 'MT5 account not found',
-      });
-    }
-
-    // Authenticate with MetaAPI to get access token
-    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
-    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
-    
-    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
-    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
-      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
-    }
-    
-    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
-      ? CLIENT_LOGIN_PATH_clean 
-      : CLIENT_LOGIN_PATH_clean.startsWith('/')
-        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
-        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
-    
-    let accessToken: string | null = null;
-    try {
-      const loginPayload = {
-        AccountId: parseInt(accountId, 10),
-        Password: mt5Account.password.trim(),
-        DeviceId: `web_close_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
-      
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
-
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
-      }
-    } catch (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to authenticate with MetaAPI',
-      });
-    }
-
-    if (!accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Failed to authenticate with MetaAPI',
-      });
-    }
-
-    // Close position via MetaAPI
-    // Try DELETE /client/position/{positionId} first
-    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
-    const hasVolume = volume && Number(volume) > 0;
-    const q = new URLSearchParams();
-    if (hasVolume) q.set('volume', String(volume));
-    
-    const primaryUrl = `${API_BASE}/client/position/${positionIdNum}${q.toString() ? `?${q.toString()}` : ''}`;
-    const baseHeaders: Record<string, string> = {
-      'Authorization': `Bearer ${accessToken}`,
-      'AccountId': String(accountId),
-      'Accept': 'application/json',
-    };
-
-    try {
-      // Try primary method: DELETE (fastest)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-      
-      const primaryResponse = await fetch(primaryUrl, {
-        method: 'DELETE',
-        headers: baseHeaders,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (primaryResponse.ok || primaryResponse.status === 204) {
-        return res.json({
-          success: true,
-          message: 'Position closed successfully',
-        });
-      }
-
-      // Only try fallback for specific error codes
-      if (primaryResponse.status === 415 || primaryResponse.status === 405) {
-        const fallback1Url = `${API_BASE}/client/position/close`;
-        const fallback1Payload: any = { positionId: positionIdNum };
-        if (hasVolume) fallback1Payload.volume = Number(volume);
-
-        const controller2 = new AbortController();
-        const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
-        
-        const fallback1Response = await fetch(fallback1Url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...baseHeaders,
-          },
-          body: JSON.stringify(fallback1Payload),
-          signal: controller2.signal,
-        });
-        clearTimeout(timeoutId2);
-
-        if (fallback1Response.ok || fallback1Response.status === 204) {
-          return res.json({
-            success: true,
-            message: 'Position closed successfully',
-          });
-        }
-      }
-
-      // Return error immediately
-      const errorText = await primaryResponse.text().catch(() => '');
-      const errorMessage = errorText ? errorText.substring(0, 200) : 'Failed to close position';
-      
-      return res.status(primaryResponse.status || 500).json({
-        success: false,
-        message: errorMessage,
-      });
-    } catch (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to close position',
         error: err instanceof Error ? err.message : 'Unknown error',
       });
     }
