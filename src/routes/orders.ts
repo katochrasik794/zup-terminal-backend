@@ -309,25 +309,23 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     }
 
     // Place pending order via MetaAPI
-    const normalizedSymbol = symbol.replace('/', '');
+    // Use symbol as-is (matching zuperior-terminal - they use String(symbol) without normalization)
+    const symbolStr = String(symbol);
     
     // Convert volume: frontend sends in lots, API expects in lots * 100
     const volumeInUnits = Math.round(parseFloat(volume) * 100);
     
-    // Build payload matching zuperior-terminal format
+    // Build payload matching zuperior-terminal format exactly
+    // Always include all fields, even if 0 (matching zuperior-terminal)
     const orderPayload: any = {
-      Symbol: normalizedSymbol,
-      Price: parseFloat(price),  // Use Price instead of PriceOrder
+      Symbol: symbolStr,
+      Price: Number(price),
       Volume: volumeInUnits,
+      StopLoss: Number(stopLoss || 0),
+      TakeProfit: Number(takeProfit || 0),
+      Expiration: '0001-01-01T00:00:00', // Default expiration (no expiration)
+      Comment: '', // Empty comment
     };
-
-    // Add TP/SL if provided
-    if (takeProfit && parseFloat(takeProfit) > 0) {
-      orderPayload.PriceTP = parseFloat(takeProfit);
-    }
-    if (stopLoss && parseFloat(stopLoss) > 0) {
-      orderPayload.PriceSL = parseFloat(stopLoss);
-    }
 
     // Use specific endpoints for each order type (matching zuperior-terminal)
     const endpointMap: Record<number, string> = {
@@ -345,7 +343,17 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
       });
     }
     
-    const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${endpoint}`;
+    // Add account_id as query parameter (matching zuperior-terminal pattern)
+    const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${endpoint}?account_id=${encodeURIComponent(accountId)}`;
+    
+    // Log the request for debugging (especially for stop orders)
+    console.log('[Orders] Placing pending order:', {
+      endpoint,
+      url: orderUrl,
+      payload: orderPayload,
+      orderType: orderType,
+      side: side,
+    });
     
     try {
       const orderResponse = await fetch(orderUrl, {
@@ -357,41 +365,63 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
         body: JSON.stringify(orderPayload),
       });
 
-      let orderData: any;
-      try {
-        const responseText = await orderResponse.text();
-        if (responseText && responseText.trim()) {
-          try {
-            orderData = JSON.parse(responseText);
-          } catch (parseErr) {
-            // If JSON parsing fails, use the raw text
-            orderData = {
-              message: responseText || orderResponse.statusText || 'Failed to parse response',
-              rawResponse: responseText,
-            };
-          }
-        } else {
-          // Empty response
-          if (orderResponse.ok) {
-            return res.json({
-              success: true,
-              data: {},
-            });
-          } else {
-            orderData = { message: orderResponse.statusText || 'Empty response from server' };
-          }
+      const responseText = await orderResponse.text().catch(() => '');
+      let orderData: any = null;
+      
+      if (responseText && responseText.trim()) {
+        try {
+          orderData = JSON.parse(responseText);
+        } catch (parseErr) {
+          // If JSON parsing fails, use the raw text
+          orderData = {
+            message: responseText || orderResponse.statusText || 'Failed to parse response',
+            rawResponse: responseText,
+          };
         }
-      } catch (e) {
-        // If reading response fails completely
-        orderData = {
-          message: orderResponse.statusText || 'Failed to read response',
-        };
+      } else {
+        // Empty response
+        if (orderResponse.ok) {
+          return res.json({
+            success: true,
+            data: {},
+          });
+        } else {
+          orderData = { message: orderResponse.statusText || 'Empty response from server' };
+        }
       }
+      
+      // Log the full response for debugging
+      console.log('[Orders] API Response:', {
+        status: orderResponse.status,
+        statusText: orderResponse.statusText,
+        endpoint,
+        responseData: orderData,
+      });
 
       if (!orderResponse.ok) {
+        console.error('[Orders] Pending order API error:', {
+          status: orderResponse.status,
+          statusText: orderResponse.statusText,
+          endpoint,
+          orderType: orderType,
+          side: side,
+          responseData: orderData,
+          payload: orderPayload,
+        });
+        
+        // Extract error message from various possible fields
+        const errorMessage = orderData?.message || 
+                            orderData?.Message || 
+                            orderData?.error || 
+                            orderData?.Error ||
+                            orderData?.ErrorMessage ||
+                            orderData?.errorMessage ||
+                            orderResponse.statusText || 
+                            'Failed to place pending order';
+        
         return res.status(orderResponse.status).json({
           success: false,
-          message: orderData?.message || orderData?.Message || orderData?.error || 'Failed to place pending order',
+          message: errorMessage,
           error: orderData,
         });
       }
