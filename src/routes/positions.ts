@@ -435,9 +435,200 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
 });
 
 /**
+ * PUT /api/positions/:positionId/modify
+ * Modify TP/SL for an open position
+ * NOTE: This route must come BEFORE /:accountId to avoid route conflicts
+ */
+router.put('/:positionId/modify', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { positionId } = req.params;
+    const { accountId, stopLoss, takeProfit, comment } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    if (!accountId || !positionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: accountId, positionId',
+      });
+    }
+
+    const positionIdNum = Number(positionId);
+    if (!Number.isFinite(positionIdNum) || positionIdNum <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid positionId',
+      });
+    }
+
+    // Get MT5 account from database
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        accountId: String(accountId),
+        archived: false,
+      },
+    });
+
+    if (!mt5Account || !mt5Account.password) {
+      return res.status(404).json({
+        success: false,
+        message: 'MT5 account not found or password not set',
+      });
+    }
+
+    // Authenticate with MetaAPI
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http') 
+      ? CLIENT_LOGIN_PATH_clean 
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+    
+    let accessToken: string | null = null;
+    try {
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_modify_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      console.error('[Positions] MetaAPI login error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Build payload for modifying position
+    const payload: any = {
+      positionId: positionIdNum,
+      comment: comment || 'Modified via web terminal',
+    };
+    if (stopLoss !== undefined && stopLoss !== null && Number(stopLoss) > 0) {
+      payload.stopLoss = Number(stopLoss);
+    }
+    if (takeProfit !== undefined && takeProfit !== null && Number(takeProfit) > 0) {
+      payload.takeProfit = Number(takeProfit);
+    }
+
+    // Helper to perform a fetch with timeout and parse
+    const doFetch = async (u: string, init: RequestInit, timeoutMs = 35000): Promise<{ res: globalThis.Response; json: any }> => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      let fetchRes: globalThis.Response;
+      let text = '';
+      try {
+        fetchRes = await fetch(u, { ...init, signal: ctrl.signal });
+        text = await fetchRes.text().catch(() => '');
+      } finally {
+        clearTimeout(t);
+      }
+      let json: any = null;
+      try { 
+        json = text ? JSON.parse(text) : null; 
+      } catch { 
+        json = text; 
+      }
+      return { res: fetchRes, json };
+    };
+
+    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
+    
+    // Primary attempt: POST /client/position/modify
+    const primaryUrl = `${API_BASE}/client/position/modify`;
+    const primary = await doFetch(primaryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    }, 35000);
+
+    // If primary succeeds, return immediately
+    if (primary.res.ok) {
+      return res.json({
+        success: true,
+        data: primary.json,
+      });
+    }
+
+    // Fallback: PUT /Trading/position/modify
+    const tradingPayload: any = {
+      Login: parseInt(String(accountId), 10),
+      PositionId: positionIdNum,
+      Comment: comment || 'Modified via web terminal',
+    };
+    if (stopLoss !== undefined && stopLoss !== null && Number(stopLoss) > 0) {
+      tradingPayload.StopLoss = Number(stopLoss);
+    }
+    if (takeProfit !== undefined && takeProfit !== null && Number(takeProfit) > 0) {
+      tradingPayload.TakeProfit = Number(takeProfit);
+    }
+
+    const secondaryUrl = `${API_BASE}/Trading/position/modify`;
+    const secondary = await doFetch(secondaryUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(tradingPayload),
+    }, 35000);
+
+    // Choose best response to forward
+    const forward = secondary.res.ok ? secondary : primary;
+    return res.status(forward.res.status).json({
+      success: forward.res.ok,
+      data: forward.json,
+    });
+  } catch (error) {
+    console.error('[Positions] Modify position error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
  * GET /api/positions/:accountId
  * Get all positions (open, pending, closed) for an account
- * NOTE: This route must come AFTER /close-all and /:positionId/close to avoid route conflicts
+ * NOTE: This route must come AFTER /close-all, /:positionId/close, and /:positionId/modify to avoid route conflicts
  */
 router.get('/:accountId', authenticateToken, async (req: Request, res: Response) => {
   try {
