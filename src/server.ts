@@ -25,9 +25,31 @@ try {
 const app: Express = express();
 const PORT = parseInt(env.PORT || '5000', 10);
 
-// Middleware
+// Middleware - CORS configuration
+// Support multiple origins: Vercel frontend and localhost for development
+const allowedOrigins = [
+  env.FRONTEND_URL,
+  'https://zup-updated-terminal.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001',
+].filter(Boolean); // Remove any undefined/null values
+
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      // Log the blocked origin for debugging
+      console.warn(`⚠️ CORS blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -60,6 +82,7 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 Environment: ${env.NODE_ENV}`);
   console.log(`🔗 Frontend URL: ${env.FRONTEND_URL}`);
+  console.log(`🌐 Allowed CORS origins: ${allowedOrigins.join(', ')}`);
 });
 
 export default app;
