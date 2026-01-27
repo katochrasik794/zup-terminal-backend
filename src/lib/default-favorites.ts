@@ -2,7 +2,7 @@
  * Utility to add default favorites to users
  */
 
-import { prisma } from './db';
+import { prisma } from './db.js';
 
 // Default favorite pairs for all users
 export const DEFAULT_FAVORITES = [

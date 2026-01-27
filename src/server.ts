@@ -2,13 +2,13 @@ import 'dotenv/config';
 import express, { Express } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { validateEnv, env } from './lib/env';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import authRoutes from './routes/auth';
-import accountRoutes from './routes/accounts';
-import instrumentRoutes from './routes/instruments';
-import positionRoutes from './routes/positions';
-import orderRoutes from './routes/orders';
+import { validateEnv, env } from './lib/env.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import authRoutes from './routes/auth.js';
+import accountRoutes from './routes/accounts.js';
+import instrumentRoutes from './routes/instruments.js';
+import positionRoutes from './routes/positions.js';
+import orderRoutes from './routes/orders.js';
 
 // Validate environment variables (with error handling)
 try {

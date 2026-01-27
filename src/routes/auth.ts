@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 import {
   comparePassword,
   generateToken,
@@ -7,9 +7,9 @@ import {
   isValidEmail,
   isValidPassword,
   verifyToken,
-} from '../lib/auth';
-import { ensureDefaultFavorites } from '../lib/default-favorites';
-import { authenticateToken } from '../middleware/auth';
+} from '../lib/auth.js';
+import { ensureDefaultFavorites } from '../lib/default-favorites.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
 

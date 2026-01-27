@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken, JWTPayload } from '../lib/auth';
+import { verifyToken, JWTPayload } from '../lib/auth.js';
 
 // Extend Express Request to include user
 declare global {
