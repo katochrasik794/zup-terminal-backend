@@ -75,7 +75,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
     try {
       const loginPayload = {
         AccountId: parseInt(accountId, 10),
-        Password: mt5Account.password.trim(),
+        Password: mt5Account.password?.trim() || '',
         DeviceId: `web_order_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
@@ -278,7 +278,7 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     try {
       const loginPayload = {
         AccountId: parseInt(accountId, 10),
-        Password: mt5Account.password.trim(),
+        Password: mt5Account.password?.trim() || '',
         DeviceId: `web_pending_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
@@ -507,7 +507,7 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
     try {
       const loginPayload = {
         AccountId: parseInt(accountId, 10),
-        Password: mt5Account.password.trim(),
+        Password: mt5Account.password?.trim() || '',
         DeviceId: `web_modify_${userId}_${Date.now()}`,
         DeviceType: 'web',
       };
@@ -539,7 +539,7 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
 
     // Modify pending order via MetaAPI
     const modifyPayload: any = {
-      OrderId: parseInt(orderId, 10),
+      OrderId: parseInt(Array.isArray(orderId) ? orderId[0] : orderId, 10),
     };
 
     if (price !== undefined) {
@@ -573,7 +573,7 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
       if (!modifyResponse.ok) {
         return res.status(modifyResponse.status).json({
           success: false,
-          message: modifyData?.message || modifyData?.Message || 'Failed to modify pending order',
+          message: (modifyData as any)?.message || (modifyData as any)?.Message || 'Failed to modify pending order',
           error: modifyData,
         });
       }
