@@ -108,10 +108,82 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
       });
     }
 
-    const balanceUrl = `https://metaapi.zuperior.com/api/Users/${accountId}/GetClientBalance`;
+    // Authenticate with MetaAPI to get access token
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
+      : CLIENT_LOGIN_PATH_clean.startsWith('/')
+        ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
+        : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
+
+    if (!mt5Account.password) {
+      return res.status(400).json({
+        success: false,
+        message: 'MT5 account password not found',
+      });
+    }
+
+    let accessToken: string | null = null;
+    try {
+      const loginPayload = {
+        AccountId: parseInt(accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_balance_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+      }
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Failed to authenticate with MetaAPI',
+      });
+    }
+
+    // Fetch balance from MetaAPI with authentication
+    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
+    const balanceUrl = `${API_BASE}/Users/${accountId}/GetClientBalance`;
 
     try {
-      const response = await fetch(balanceUrl);
+      const response = await fetch(balanceUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'AccountId': String(accountId),
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          success: false,
+          message: `Failed to fetch balance: ${response.statusText}`,
+        });
+      }
+
       const result = await response.json() as any;
 
       if (result.Success && result.Data) {
@@ -128,7 +200,8 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
     } catch (err) {
       return res.status(500).json({
         success: false,
-        message: 'Internal server error while fetching balance'
+        message: 'Internal server error while fetching balance',
+        error: err instanceof Error ? err.message : 'Unknown error',
       });
     }
   } catch (error) {
