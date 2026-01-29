@@ -44,7 +44,10 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -72,9 +75,10 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password?.trim() || '',
         DeviceId: `web_order_${userId}_${Date.now()}`,
         DeviceType: 'web',
@@ -247,7 +251,10 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -275,9 +282,10 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password?.trim() || '',
         DeviceId: `web_pending_${userId}_${Date.now()}`,
         DeviceType: 'web',
@@ -476,7 +484,10 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -504,9 +515,10 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password?.trim() || '',
         DeviceId: `web_modify_${userId}_${Date.now()}`,
         DeviceType: 'web',

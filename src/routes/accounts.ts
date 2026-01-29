@@ -95,7 +95,10 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
 
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
-        accountId: accountId as string,
+        OR: [
+          { id: accountId as string },
+          { accountId: accountId as string }
+        ],
         userId: userId,
         archived: false,
       }
@@ -133,7 +136,7 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
     let accessToken: string | null = null;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(String(accountId), 10),
         Password: mt5Account.password.trim(),
         DeviceId: `web_balance_${userId}_${Date.now()}`,
         DeviceType: 'web',
@@ -165,7 +168,7 @@ router.get('/:accountId/balance', authenticateToken, async (req: Request, res: R
 
     // Fetch balance from MetaAPI with authentication
     const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
-    const balanceUrl = `${API_BASE}/Users/${accountId}/GetClientBalance`;
+    const balanceUrl = `${API_BASE}/Users/${String(accountId)}/GetClientBalance`;
 
     try {
       const response = await fetch(balanceUrl, {
@@ -233,7 +236,10 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     // Get MT5 account with password
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
-        accountId: accountId,
+        OR: [
+          { id: accountId },
+          { accountId: accountId }
+        ],
         userId: userId,
         archived: false,
       },
@@ -246,6 +252,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     });
 
     if (!mt5Account || !mt5Account.password) {
+      console.log(`[AccountLogin] Account not found or password missing for accountId: ${accountId}, userId: ${userId}`);
       return res.status(404).json({
         success: false,
         message: 'Account not found or password not configured',
@@ -271,12 +278,13 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH}`;
 
-    // Parse accountId as integer
-    const accountIdInt = parseInt(accountId, 10);
+    // Parse accountId as integer - use the actual MT5 account number from DB
+    const actualMt5AccountId = mt5Account.accountId;
+    const accountIdInt = parseInt(actualMt5AccountId, 10);
     if (isNaN(accountIdInt)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid account ID format',
+        message: 'Invalid account ID format in database',
       });
     }
 
@@ -300,6 +308,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
 
       if (loginResponse.ok) {
         const loginData = await loginResponse.json() as any;
+        console.log(`[AccountLogin] MetaAPI login successful for accountId: ${accountId}`);
 
         // Check for Token (capital T) first, as that's what the API returns
         const accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.data?.accessToken || loginData?.token;
@@ -315,6 +324,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
         }
       }
 
+      console.log(`[AccountLogin] MetaAPI login failed for accountId: ${accountId}, status: ${loginResponse.status}`);
       return res.status(401).json({
         success: false,
         message: 'Failed to authenticate with MetaAPI',
@@ -352,7 +362,10 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
     // Get MT5 account with password for authentication
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
-        accountId: accountId as string,
+        OR: [
+          { id: accountId },
+          { accountId: accountId }
+        ],
         userId: userId,
         archived: false,
       },
@@ -434,9 +447,10 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password.trim(),
         DeviceId: `web_device_${Date.now()}`,
         DeviceType: 'web',

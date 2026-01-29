@@ -32,7 +32,10 @@ router.post('/close-all', authenticateToken, async (req: Request, res: Response)
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -239,7 +242,10 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -274,9 +280,10 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     }
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password.trim(),
         DeviceId: `web_close_${userId}_${Date.now()}`,
         DeviceType: 'web',
@@ -471,7 +478,10 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -499,9 +509,10 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
       const loginPayload = {
-        AccountId: parseInt(accountId, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password.trim(),
         DeviceId: `web_modify_${userId}_${Date.now()}`,
         DeviceType: 'web',
@@ -653,7 +664,10 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
     const mt5Account = await prisma.mT5Account.findFirst({
       where: {
         userId: userId,
-        accountId: String(accountId),
+        OR: [
+          { id: String(accountId) },
+          { accountId: String(accountId) }
+        ],
         archived: false,
       },
     });
@@ -688,10 +702,11 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
     }
 
     let accessToken: string | null = null;
+    const actualMt5AccountId = mt5Account.accountId;
     try {
-      const accountIdStr = Array.isArray(accountId) ? accountId[0] : accountId;
+      const accountIdStr = Array.isArray(accountId) ? accountId[0] : String(accountId);
       const loginPayload = {
-        AccountId: parseInt(accountIdStr, 10),
+        AccountId: parseInt(actualMt5AccountId, 10),
         Password: mt5Account.password.trim(),
         DeviceId: `web_positions_${userId}_${Date.now()}`,
         DeviceType: 'web',
