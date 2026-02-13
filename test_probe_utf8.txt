@@ -1,0 +1,20 @@
+﻿Starting probe for account 19876982...
+Logging in to https://metaapi.zuperior.com/api/client/ClientAuth/login...
+Login successful.
+
+Probing: https://metaapi.zuperior.com/api/marketdata/symbols?account_id=19876982
+Status: 404 Not Found
+
+Probing: https://metaapi.zuperior.com/api/Users/19876982/Symbols
+Status: 404 Not Found
+
+Probing: https://metaapi.zuperior.com/api/client/symbols?account_id=19876982
+Status: 404 Not Found
+
+Probing: https://metaapi.zuperior.com/api/public/symbol_list
+Status: 404 Not Found
+
+Probing: https://metaapi.zuperior.com/api/symbols
+Status: 200 OK
+SUCCESS! Response is array: true
+Valid symbol list found!

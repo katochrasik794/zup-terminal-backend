@@ -1,0 +1,24 @@
+﻿Starting instrument sync...
+Found 77 potential accounts to use for syncing.
+Identified 3 unique groups: [
+  'real\\Bbook\\Startup\\dynamic-2000x-20Pips',
+  'demo\\Pro\\dynamic-2000x-10PAbook',
+  'real\\Bbook\\Pro\\dynamic-2000x-10P'
+]
+
+--- Processing Group: real\Bbook\Startup\dynamic-2000x-20Pips (using account 19876982) ---
+[Sync] Authenticating for account 19876982...
+[Sync] Fetching symbols from https://metaapi.zuperior.com/api/marketdata/symbols?account_id=19876982...
+No symbols found for group real\Bbook\Startup\dynamic-2000x-20Pips.
+
+--- Processing Group: demo\Pro\dynamic-2000x-10PAbook (using account 19876981) ---
+[Sync] Authenticating for account 19876981...
+[Sync] Fetching symbols from https://metaapi.zuperior.com/api/marketdata/symbols?account_id=19876981...
+No symbols found for group demo\Pro\dynamic-2000x-10PAbook.
+
+--- Processing Group: real\Bbook\Pro\dynamic-2000x-10P (using account 19876966) ---
+[Sync] Authenticating for account 19876966...
+[Sync] Fetching symbols from https://metaapi.zuperior.com/api/marketdata/symbols?account_id=19876966...
+No symbols found for group real\Bbook\Pro\dynamic-2000x-10P.
+
+Sync complete.
