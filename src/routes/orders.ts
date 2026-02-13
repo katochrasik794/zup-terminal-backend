@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { tokenCache } from '../lib/tokenCache.js';
 
 const router = Router();
 
@@ -74,25 +75,30 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
-    let accessToken: string | null = null;
+    let accessToken: string | null = tokenCache.get(String(accountId));
     const actualMt5AccountId = mt5Account.accountId;
     try {
-      const loginPayload = {
-        AccountId: parseInt(actualMt5AccountId, 10),
-        Password: mt5Account.password?.trim() || '',
-        DeviceId: `web_order_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
+      if (!accessToken) {
+        const loginPayload = {
+          AccountId: parseInt(actualMt5AccountId, 10),
+          Password: mt5Account.password?.trim() || '',
+          DeviceId: `web_order_${userId}_${Date.now()}`,
+          DeviceType: 'web',
+        };
 
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
+        const loginResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload),
+        });
 
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+        if (loginResponse.ok) {
+          const loginData = await loginResponse.json() as any;
+          accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+          if (accessToken) {
+            tokenCache.set(String(accountId), accessToken, 3600);
+          }
+        }
       }
     } catch (err) {
       console.error('[Orders] MetaAPI login error:', err);
@@ -281,25 +287,30 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
-    let accessToken: string | null = null;
+    let accessToken: string | null = tokenCache.get(String(accountId));
     const actualMt5AccountId = mt5Account.accountId;
     try {
-      const loginPayload = {
-        AccountId: parseInt(actualMt5AccountId, 10),
-        Password: mt5Account.password?.trim() || '',
-        DeviceId: `web_pending_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
+      if (!accessToken) {
+        const loginPayload = {
+          AccountId: parseInt(actualMt5AccountId, 10),
+          Password: mt5Account.password?.trim() || '',
+          DeviceId: `web_pending_${userId}_${Date.now()}`,
+          DeviceType: 'web',
+        };
 
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
+        const loginResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload),
+        });
 
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+        if (loginResponse.ok) {
+          const loginData = await loginResponse.json() as any;
+          accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+          if (accessToken) {
+            tokenCache.set(String(accountId), accessToken, 3600);
+          }
+        }
       }
     } catch (err) {
       console.error('[Orders] MetaAPI login error:', err);
@@ -514,25 +525,30 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
-    let accessToken: string | null = null;
+    let accessToken: string | null = tokenCache.get(String(accountId));
     const actualMt5AccountId = mt5Account.accountId;
     try {
-      const loginPayload = {
-        AccountId: parseInt(actualMt5AccountId, 10),
-        Password: mt5Account.password?.trim() || '',
-        DeviceId: `web_modify_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
+      if (!accessToken) {
+        const loginPayload = {
+          AccountId: parseInt(actualMt5AccountId, 10),
+          Password: mt5Account.password?.trim() || '',
+          DeviceId: `web_modify_${userId}_${Date.now()}`,
+          DeviceType: 'web',
+        };
 
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
+        const loginResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload),
+        });
 
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+        if (loginResponse.ok) {
+          const loginData = await loginResponse.json() as any;
+          accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+          if (accessToken) {
+            tokenCache.set(String(accountId), accessToken, 3600);
+          }
+        }
       }
     } catch (err) {
       console.error('[Orders] MetaAPI login error:', err);

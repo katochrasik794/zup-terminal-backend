@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { tokenCache } from '../lib/tokenCache.js';
 
 const router = Router();
 
@@ -62,31 +63,36 @@ router.post('/close-all', authenticateToken, async (req: Request, res: Response)
         ? `${LIVE_API_URL.replace(/\/$/, '')}${CLIENT_LOGIN_PATH_clean}`
         : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean}`;
 
-    let accessToken: string | null = null;
+    let accessToken: string | null = tokenCache.get(String(accountId));
     try {
-      if (!mt5Account.password) {
-        return res.status(400).json({
-          success: false,
-          message: 'MT5 account password not found',
+      if (!accessToken) {
+        if (!mt5Account.password) {
+          return res.status(400).json({
+            success: false,
+            message: 'MT5 account password not found',
+          });
+        }
+
+        const loginPayload = {
+          AccountId: parseInt(accountId, 10),
+          Password: mt5Account.password.trim(),
+          DeviceId: `web_closeall_${userId}_${Date.now()}`,
+          DeviceType: 'web',
+        };
+
+        const loginResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload),
         });
-      }
 
-      const loginPayload = {
-        AccountId: parseInt(accountId, 10),
-        Password: mt5Account.password.trim(),
-        DeviceId: `web_closeall_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
-
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
-
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+        if (loginResponse.ok) {
+          const loginData = await loginResponse.json() as any;
+          accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+          if (accessToken) {
+            tokenCache.set(String(accountId), accessToken, 3600);
+          }
+        }
       }
     } catch (err) {
       return res.status(500).json({
@@ -279,25 +285,30 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
       });
     }
 
-    let accessToken: string | null = null;
+    let accessToken: string | null = tokenCache.get(String(accountId));
     const actualMt5AccountId = mt5Account.accountId;
     try {
-      const loginPayload = {
-        AccountId: parseInt(actualMt5AccountId, 10),
-        Password: mt5Account.password.trim(),
-        DeviceId: `web_close_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
+      if (!accessToken) {
+        const loginPayload = {
+          AccountId: parseInt(actualMt5AccountId, 10),
+          Password: mt5Account.password.trim(),
+          DeviceId: `web_close_${userId}_${Date.now()}`,
+          DeviceType: 'web',
+        };
 
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
+        const loginResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload),
+        });
 
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+        if (loginResponse.ok) {
+          const loginData = await loginResponse.json() as any;
+          accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+          if (accessToken) {
+            tokenCache.set(String(accountId), accessToken, 3600);
+          }
+        }
       }
     } catch (err) {
       return res.status(500).json({
@@ -701,26 +712,31 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
       });
     }
 
-    let accessToken: string | null = null;
+    let accessToken: string | null = tokenCache.get(String(accountId));
     const actualMt5AccountId = mt5Account.accountId;
     try {
-      const accountIdStr = Array.isArray(accountId) ? accountId[0] : String(accountId);
-      const loginPayload = {
-        AccountId: parseInt(actualMt5AccountId, 10),
-        Password: mt5Account.password.trim(),
-        DeviceId: `web_positions_${userId}_${Date.now()}`,
-        DeviceType: 'web',
-      };
+      if (!accessToken) {
+        const accountIdStr = Array.isArray(accountId) ? accountId[0] : String(accountId);
+        const loginPayload = {
+          AccountId: parseInt(actualMt5AccountId, 10),
+          Password: mt5Account.password.trim(),
+          DeviceId: `web_positions_${userId}_${Date.now()}`,
+          DeviceType: 'web',
+        };
 
-      const loginResponse = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginPayload),
-      });
+        const loginResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload),
+        });
 
-      if (loginResponse.ok) {
-        const loginData = await loginResponse.json() as any;
-        accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+        if (loginResponse.ok) {
+          const loginData = await loginResponse.json() as any;
+          accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.token || null;
+          if (accessToken) {
+            tokenCache.set(String(accountId), accessToken, 3600);
+          }
+        }
       }
     } catch (err) {
       return res.status(500).json({

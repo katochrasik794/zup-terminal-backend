@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { tokenCache } from '../lib/tokenCache.js';
 
 const router = Router();
 
@@ -226,10 +227,16 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     const userId = req.user?.userId;
     const accountId = String(req.params.accountId);
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized',
+    // Check cache first
+    const cachedToken = tokenCache.get(accountId);
+    if (cachedToken) {
+      console.log(`[AccountLogin] Using cached token for accountId: ${accountId}`);
+      return res.json({
+        success: true,
+        data: {
+          accessToken: cachedToken,
+          accountId: accountId,
+        },
       });
     }
 
@@ -314,6 +321,9 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
         const accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.data?.accessToken || loginData?.token;
 
         if (accessToken) {
+          // Store in cache (1 hour TTL)
+          tokenCache.set(accountId, accessToken, 3600);
+
           return res.json({
             success: true,
             data: {
