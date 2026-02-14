@@ -1,0 +1,16 @@
+﻿D:\zup-terminal\zup-terminal-backend\check-positions.ts
+D:\zup-terminal\zup-terminal-backend\src\check-positions.ts
+D:\zup-terminal\zup-terminal-backend\src\scripts\inspect-instruments.ts
+D:\zup-terminal\zup-terminal-backend\src\src\server.ts
+D:\zup-terminal\zup-terminal-backend\src\src\lib\auth.ts
+D:\zup-terminal\zup-terminal-backend\src\src\lib\db.ts
+D:\zup-terminal\zup-terminal-backend\src\src\lib\default-favorites.ts
+D:\zup-terminal\zup-terminal-backend\src\src\lib\env.ts
+D:\zup-terminal\zup-terminal-backend\src\src\lib\tokenCache.ts
+D:\zup-terminal\zup-terminal-backend\src\src\middleware\auth.ts
+D:\zup-terminal\zup-terminal-backend\src\src\middleware\errorHandler.ts
+D:\zup-terminal\zup-terminal-backend\src\src\routes\accounts.ts
+D:\zup-terminal\zup-terminal-backend\src\src\routes\auth.ts
+D:\zup-terminal\zup-terminal-backend\src\src\routes\instruments.ts
+D:\zup-terminal\zup-terminal-backend\src\src\routes\orders.ts
+D:\zup-terminal\zup-terminal-backend\src\src\routes\positions.ts

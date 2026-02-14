@@ -1,0 +1,11 @@
+﻿Testing with group string: real\Bbook\Startup\dynamic-2000x-20Pips
+
+Match Original (contains 'real\Bbook\Startup\dynamic-2000x-20Pips'): 0 found
+
+Testing transformed: real\NLP\Start-up\dynamic-2000x-20Pips
+Match Transformed (contains 'real\NLP\Start-up\dynamic-2000x-20Pips'): 0 found
+
+Match 'dynamic': 1 found
+Sample group: demo\Pro\dynamic-2000x-10PAbook,real\Bbook\Startup\dynamic-2000x-20Pips
+Match 'real\\Bbook': 0 found
+Match 'real\\\\Bbook': 1 found

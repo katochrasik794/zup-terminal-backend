@@ -1,0 +1,108 @@
+﻿Total Instruments: 196
+
+Categories: [
+  { _count: { symbol: 5 }, category: 'Other' },
+  { _count: { symbol: 10 }, category: 'Stocks' },
+  { _count: { symbol: 51 }, category: 'Pro' },
+  { _count: { symbol: 1 }, category: '#.SilverC 5K oz' },
+  { _count: { symbol: 10 }, category: '# Indices I' },
+  { _count: { symbol: 3 }, category: '# Indices II' },
+  { _count: { symbol: 1 }, category: 'Indices' },
+  { _count: { symbol: 51 }, category: 'Standardm' },
+  { _count: { symbol: 1 }, category: '# JPN225(Min10)' },
+  { _count: { symbol: 58 }, category: '0001SOL' },
+  { _count: { symbol: 2 }, category: 'Forex' },
+  { _count: { symbol: 1 }, category: '#.GoldP 100 oz' },
+  { _count: { symbol: 2 }, category: '# Energies' }
+]
+
+Sample Instruments: [
+  {
+    symbol: 'AAPL',
+    category: 'Pro',
+    path: 'Pro\\Equities US\\AAPL',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'AAPLm',
+    category: 'Standardm',
+    path: 'Standardm\\Equities US\\AAPLm',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'AAPL.OQ',
+    category: '0001SOL',
+    path: '0001SOL\\AAPL.OQ',
+    group: 'real\\Bbook\\Pro\\dynamic-2000x-10P,real\\Bbook\\Startup\\dynamic-2000x-20Pips,demo\\Pro\\dynamic-2000x-10PAbook'
+  },
+  {
+    symbol: 'AAPL.OQ.e',
+    category: '0001SOL',
+    path: '0001SOL\\Equities US\\AAPL.OQ.e',
+    group: 'real\\Bbook\\Pro\\dynamic-2000x-10P,real\\Bbook\\Startup\\dynamic-2000x-20Pips,demo\\Pro\\dynamic-2000x-10PAbook'
+  },
+  {
+    symbol: 'Amazon',
+    category: 'Stocks',
+    path: 'Pro\\Stocks\\Amazon',
+    group: 'real\\LP\\Pro\\dynamic-2000x-10P'
+  },
+  {
+    symbol: 'Amazonm',
+    category: 'Stocks',
+    path: 'Standardm\\Stocks\\Amazonm',
+    group: 'real\\NLP\\Start-up\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'AMD',
+    category: 'Pro',
+    path: 'Pro\\Equities US\\AMD',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'AMDm',
+    category: 'Standardm',
+    path: 'Standardm\\Equities US\\AMDm',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'AMD.OQ',
+    category: '0001SOL',
+    path: '0001SOL\\AMD.OQ',
+    group: 'real\\Bbook\\Pro\\dynamic-2000x-10P,real\\Bbook\\Startup\\dynamic-2000x-20Pips,demo\\Pro\\dynamic-2000x-10PAbook'
+  },
+  {
+    symbol: 'AMD.OQ.e',
+    category: '0001SOL',
+    path: '0001SOL\\Equities US\\AMD.OQ.e',
+    group: 'real\\Bbook\\Pro\\dynamic-2000x-10P,real\\Bbook\\Startup\\dynamic-2000x-20Pips,demo\\Pro\\dynamic-2000x-10PAbook'
+  }
+]
+
+Common Symbols Check: [
+  {
+    symbol: 'EURUSD',
+    category: 'Pro',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'GBPUSD',
+    category: 'Pro',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'USDJPY',
+    category: 'Pro',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'BTCUSD',
+    category: 'Pro',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  },
+  {
+    symbol: 'XAUUSD',
+    category: 'Pro',
+    group: 'demo\\Pro\\dynamic-2000x-10PAbook,real\\Bbook\\Startup\\dynamic-2000x-20Pips'
+  }
+]
