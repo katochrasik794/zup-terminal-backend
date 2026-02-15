@@ -38,6 +38,8 @@ model User {
   userLoginLogs        UserLoginLog[]     @relation("userLoginLogs")
   suggestions          Suggestion[]
   priceAlerts          PriceAlert[]
+  killSwitchActive     Boolean            @default(false)
+  killSwitchUntil      DateTime?
 
   @@index([resetToken], map: "idx_user_reset_token")
 }

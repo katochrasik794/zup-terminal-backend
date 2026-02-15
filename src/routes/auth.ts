@@ -115,12 +115,14 @@ router.post('/login', async (req: Request, res: Response) => {
         role: user.role,
         status: user.status,
         emailVerified: user.emailVerified,
+        killSwitchActive: user.killSwitchActive,
+        killSwitchUntil: user.killSwitchUntil,
       },
       mt5Account: mt5Account
         ? {
-            id: mt5Account.id,
-            accountId: mt5Account.accountId,
-          }
+          id: mt5Account.id,
+          accountId: mt5Account.accountId,
+        }
         : null,
       token,
     });
@@ -261,6 +263,8 @@ router.get('/me', authenticateToken, async (req: Request, res: Response) => {
         emailVerified: true,
         createdAt: true,
         lastLoginAt: true,
+        killSwitchActive: true,
+        killSwitchUntil: true,
       },
     });
 
@@ -397,12 +401,14 @@ router.post('/sso-login', async (req: Request, res: Response) => {
         role: user.role,
         status: user.status,
         emailVerified: user.emailVerified,
+        killSwitchActive: user.killSwitchActive,
+        killSwitchUntil: user.killSwitchUntil,
       },
       mt5Account: mt5Account
         ? {
-            id: mt5Account.id,
-            accountId: mt5Account.accountId,
-          }
+          id: mt5Account.id,
+          accountId: mt5Account.accountId,
+        }
         : null,
       token: terminalToken,
     });
