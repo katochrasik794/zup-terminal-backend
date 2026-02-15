@@ -30,7 +30,8 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
             targetGroup = group.replace('\\Bbook\\', '\\LP\\');
         }
 
-        const [instruments, symbolDetails] = await Promise.all([
+        // Use raw query to avoid Prisma Client generation/property name issues
+        const [instruments, ibSpreads] = await Promise.all([
             prisma.instrument.findMany({
                 where: {
                     OR: [
@@ -48,30 +49,94 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
                     }
                 }
             }),
-            prisma.symbols_with_categories.findMany({})
+            prisma.$queryRaw`SELECT * FROM ib_symbol_spreads` as Promise<any[]>
         ]);
 
-        // Create a map for quick lookup
-        const detailsMap = new Map();
-        symbolDetails.forEach(detail => {
-            detailsMap.set(detail.symbol, detail);
+        console.log('[Instruments API] Loaded ibSpreads:', ibSpreads.length);
+        if (ibSpreads.length > 0) {
+            console.log('[Instruments API] First spread sample keys:', Object.keys(ibSpreads[0]));
+            // Sample: { id, symbol, startup_spread, ... }
+        }
+
+        // Create a map for quick lookup from ib_symbol_spreads
+        // DB symbols are "BTCUSD" (no suffix)
+        const spreadMap = new Map();
+        ibSpreads.forEach(spread => {
+            spreadMap.set(spread.symbol, spread);
         });
+
+        // Determine which spread column to use based on group
+        // If group has 'Pro', use pro_spread. Else default to startup_spread?
+        // User request says: "check the spread and contract size from this , for the pairs according to the group"
+        const useProSpread = (group as string).includes('Pro');
+
+        // Helper to normalize symbol
+        const normalize = (sym: string) => {
+            return sym.replace(/m$/, '').replace(/\.pro$/, '').replace(/\.ecn$/, '');
+        };
 
         // Flatten favorite status and sort order AND merge details
         const data = instruments.map(inst => {
             const fav = inst.UserFavorite[0];
-            const detail = detailsMap.get(inst.symbol);
+
+            // Normalize current instrument symbol to find match in DB
+            const cleanSymbol = normalize(inst.symbol);
+            const cleanUpper = cleanSymbol.toUpperCase();
+
+            // Try explicit match, then clean match, then case-insensitive clean match
+            // spreadMap keys might be arbitrary case? My seed used "BTCUSD". 
+            // Query result keys depend on DB.
+            let spreadData = spreadMap.get(inst.symbol) || spreadMap.get(cleanSymbol);
+
+            // Fallback: search map by value symbol manually if needed (expensive but safe for small list)
+            if (!spreadData) {
+                for (const [key, val] of spreadMap.entries()) {
+                    if (val.symbol.toUpperCase() === cleanUpper) {
+                        spreadData = val;
+                        break;
+                    }
+                }
+            }
+
+            if (inst.symbol.includes('BTC') && !spreadData) {
+                console.log('[Instruments API] WARNING: BTC symbol not found in spreads. Inst:', inst.symbol, 'Clean:', cleanSymbol);
+            }
+
+            // Determine contract size
+            // Default logic: If spreadData has it, use it.
+            // If NOT, check if it's Crypto (BTC/ETH) and default to 1 instead of 100000 which is crazy for BTC.
+            let contractSize = spreadData?.contract_size || inst.contractSize;
+
+            if (!contractSize) {
+                // Heuristic fallbacks if DB missing
+                if (cleanUpper.includes('BTC') || cleanUpper.includes('ETH') || cleanUpper.includes('XAU')) {
+                    contractSize = 1;
+                    if (cleanUpper.includes('XAU')) contractSize = 100; // Gold usually 100
+                } else {
+                    contractSize = 100000;
+                }
+            }
+
+            // Spread selection
+            let spreadVal = inst.spread; // default from instrument table
+            if (spreadData) {
+                const dbSpread = useProSpread ? spreadData.pro_spread : spreadData.startup_spread;
+                if (dbSpread) {
+                    spreadVal = Number(dbSpread);
+                }
+            }
 
             return {
                 ...inst,
                 favorite: !!fav,
                 sortOrder: fav?.sortOrder ?? 99999, // default to end
                 UserFavorite: undefined, // remove join data
-                // Merge details from symbols_with_categories
-                contractSize: detail?.contract_size || inst.contractSize || 100000,
-                spread: detail?.spread ? Number(detail.spread) : inst.spread, // Prefer extra table
-                commission: detail?.commission ? Number(detail.commission) : 0,
-                pipValue: detail?.pip_value ? Number(detail.pip_value) : undefined
+
+                // Merged fields
+                contractSize: contractSize,
+                spread: spreadVal,
+                commission: 0,
+                pipValue: undefined // Let frontend calc or use default
             };
         }).sort((a, b) => {
             // Sort by sortOrder first, then by symbol

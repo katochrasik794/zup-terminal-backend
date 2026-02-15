@@ -1219,3 +1219,18 @@ model PriceAlert {
   @@index([isActive])
   @@index([symbol])
 }
+
+model ib_symbol_spreads {
+  id             Int      @id @default(autoincrement())
+  symbol         String   @unique @db.VarChar(50)
+  group_name     String?  @db.VarChar(100)
+  category       String?  @db.VarChar(100)
+  startup_spread Decimal  @db.Decimal(15, 5)
+  pro_spread     Decimal  @db.Decimal(15, 5)
+  contract_size  Int?     @default(100000)
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([symbol])
+  @@index([group_name])
+}
