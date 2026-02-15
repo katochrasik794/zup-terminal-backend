@@ -25,6 +25,8 @@ model User {
   twoFactorBackupCodes String[]           @default([])
   resetToken           String?
   resetTokenExpires    DateTime?
+  killSwitchActive     Boolean            @default(false)
+  killSwitchUntil      DateTime?
   accounts             Account[]          @relation("accounts")
   activityLogs         ActivityLog[]      @relation("activityLogs")
   DefaultMT5Account    DefaultMT5Account?
@@ -32,14 +34,12 @@ model User {
   kyc                  KYC?               @relation("kyc")
   mt5Accounts          MT5Account[]       @relation("mt5Accounts")
   notifications        Notification[]     @relation("notifications")
+  priceAlerts          PriceAlert[]
   RefreshToken         RefreshToken[]
+  suggestions          Suggestion[]
   terminalSettings     TerminalSettings?
   UserFavorite         UserFavorite[]
   userLoginLogs        UserLoginLog[]     @relation("userLoginLogs")
-  suggestions          Suggestion[]
-  priceAlerts          PriceAlert[]
-  killSwitchActive     Boolean            @default(false)
-  killSwitchUntil      DateTime?
 
   @@index([resetToken], map: "idx_user_reset_token")
 }
@@ -72,7 +72,6 @@ model MT5Account {
   leverage          Int?
   nameOnAccount     String?
   package           String?
-  group             String?
   balance           Float?              @default(0)
   credit            Float?              @default(0)
   currency          String?             @default("USD")
@@ -84,6 +83,7 @@ model MT5Account {
   profit            Float?              @default(0)
   archived          Boolean             @default(false)
   archived_at       DateTime?           @db.Timestamptz(6)
+  group             String?
   DefaultMT5Account DefaultMT5Account[]
   deposits          Deposit[]           @relation("deposits")
   user              User?               @relation("mt5Accounts", fields: [userId], references: [id])
@@ -133,11 +133,11 @@ model Account {
 }
 
 model Deposit {
-  id                    String     @id @default(uuid())
+  id                    String             @id @default(uuid())
   userId                String
   mt5AccountId          String
   amount                Float
-  currency              String     @default("USD")
+  currency              String             @default("USD")
   method                String
   paymentMethod         String?
   transactionHash       String?
@@ -146,17 +146,19 @@ model Deposit {
   cryptoAddress         String?
   depositAddress        String?
   externalTransactionId String?
-  status                String     @default("pending")
+  status                String             @default("pending")
   rejectionReason       String?
   approvedBy            String?
   approvedAt            DateTime?
   rejectedAt            DateTime?
   processedAt           DateTime?
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
-  mt5Account            MT5Account @relation("deposits", fields: [mt5AccountId], references: [id])
-  user                  User       @relation("deposits", fields: [userId], references: [id])
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
   cregisDeposit         CregisDeposit?
+  mt5Account            MT5Account         @relation("deposits", fields: [mt5AccountId], references: [id])
+  user                  User               @relation("deposits", fields: [userId], references: [id])
+  DigiPay247Deposit     DigiPay247Deposit?
+  UnipaymentDeposit     UnipaymentDeposit?
 
   @@index([userId])
   @@index([mt5AccountId])
@@ -177,11 +179,11 @@ model CregisDeposit {
   webhookData   Json?     @map("webhook_data")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
-  deposit       Deposit   @relation(fields: [depositId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  deposit       Deposit   @relation(fields: [depositId], references: [id], onDelete: Cascade)
 
-  @@index([depositId], map: "CregisDeposit_deposit_id_idx")
-  @@index([cregisOrderId], map: "CregisDeposit_cregis_order_id_idx")
-  @@index([cregisStatus], map: "CregisDeposit_cregis_status_idx")
+  @@index([depositId])
+  @@index([cregisOrderId])
+  @@index([cregisStatus])
   @@map("CregisDeposit")
 }
 
@@ -322,26 +324,25 @@ model DefaultMT5Account {
 }
 
 model Instrument {
-  id           String         @id
-  symbol       String         @unique
-  name         String?
-  description  String?
-  category     String
-  group        String?
-  digits       Int            @default(5)
-  contractSize Float          @default(100000)
-  minVolume    Float          @default(0.01)
-  maxVolume    Float          @default(100)
-  volumeStep   Float          @default(0.01)
-  spread       Float          @default(0)
-  isActive     Boolean        @default(true)
-  tradingHours String?
-  lastUpdated  DateTime
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime
-  // New fields from MT5 API
-  path              String?  @db.Text
-  accountGroup      String?  @db.Text
+  id                String         @id
+  symbol            String
+  name              String?
+  description       String?
+  category          String
+  group             String?
+  digits            Int            @default(5)
+  contractSize      Float          @default(100000)
+  minVolume         Float          @default(0.01)
+  maxVolume         Float          @default(100)
+  volumeStep        Float          @default(0.01)
+  spread            Float          @default(0)
+  isActive          Boolean        @default(true)
+  tradingHours      String?
+  lastUpdated       DateTime
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime
+  path              String?
+  accountGroup      String?
   isin              String?
   sector            Int?
   industry          Int?
@@ -363,7 +364,9 @@ model Instrument {
   swapLong          Float?
   swapShort         Float?
   swapMode          Int?
-  UserFavorite UserFavorite[]
+  UserFavorite      UserFavorite[]
+
+  @@unique([symbol, group])
 }
 
 model RefreshToken {
@@ -385,15 +388,15 @@ model RefreshToken {
 }
 
 model UserFavorite {
-  id           String     @id @default(uuid())
+  id           String      @id @default(uuid())
   userId       String
   instrumentId String
-  mt5AccountId String?    // Optional for backward compatibility during migration, but should be populated
-  sortOrder    Int        @default(0)
-  addedAt      DateTime   @default(now())
-  Instrument   Instrument @relation(fields: [instrumentId], references: [id])
-  User         User       @relation(fields: [userId], references: [id])
+  sortOrder    Int         @default(0)
+  addedAt      DateTime    @default(now())
+  mt5AccountId String?
+  Instrument   Instrument  @relation(fields: [instrumentId], references: [id])
   MT5Account   MT5Account? @relation(fields: [mt5AccountId], references: [id])
+  User         User        @relation(fields: [userId], references: [id])
 
   @@unique([userId, instrumentId, mt5AccountId])
   @@index([instrumentId])
@@ -594,8 +597,6 @@ model ib_requests {
   ib_type                   String                 @default("common") @db.VarChar(255)
   submitted_at              DateTime?              @default(now()) @db.Timestamptz(6)
   approved_at               DateTime?              @db.Timestamptz(6)
-  usd_per_lot               Decimal?               @db.Decimal(10, 2)
-  spread_percentage_per_lot Decimal?               @db.Decimal(5, 2)
   admin_comments            String?
   group_id                  String?                @db.VarChar(255)
   structure_id              Int?
@@ -604,6 +605,8 @@ model ib_requests {
   referral_code             String?                @unique @db.VarChar(8)
   referred_by               Int?
   country                   String?                @db.VarChar(100)
+  usd_per_lot               Decimal?               @db.Decimal(10, 2)
+  spread_percentage_per_lot Decimal?               @db.Decimal(5, 2)
   ib_group_assignments      ib_group_assignments[]
 
   @@index([referral_code], map: "idx_ib_requests_referral_code")
@@ -629,6 +632,7 @@ model manual_gateway {
   swift_code     String?  @db.VarChar(50)
   account_type   String?  @db.VarChar(50)
   country_code   String?  @db.VarChar(2)
+  fixed_rate     Decimal? @default(92.00) @db.Decimal(10, 2)
 
   @@index([is_active])
   @@index([type])
@@ -705,13 +709,13 @@ model ib_trade_history {
   open_price    Decimal?  @db.Decimal
   close_price   Decimal?  @db.Decimal
   profit        Decimal?  @db.Decimal
-  ib_commission Decimal?  @default(0) @db.Decimal
-  take_profit   Decimal?  @db.Decimal
-  stop_loss     Decimal?  @db.Decimal
   created_at    DateTime? @default(now()) @db.Timestamp(6)
   updated_at    DateTime? @default(now()) @db.Timestamp(6)
   synced_at     DateTime? @default(now()) @db.Timestamp(6)
   group_id      String?
+  ib_commission Decimal?  @default(0) @db.Decimal
+  stop_loss     Decimal?  @db.Decimal
+  take_profit   Decimal?  @db.Decimal
 
   @@index([account_id], map: "idx_ib_trade_account")
   @@index([group_id], map: "idx_ib_trade_group")
@@ -853,7 +857,6 @@ model Notification {
 
 model group_management {
   id                Int       @id @default(autoincrement())
-
   group             String    @unique @db.VarChar(255)
   server            Int?      @default(1)
   auth_mode         Int?      @default(0)
@@ -869,6 +872,10 @@ model group_management {
   min_deposit       Decimal?  @db.Decimal(10, 2)
   spread            Decimal?  @db.Decimal(5, 2)
   commission        Decimal?  @db.Decimal(5, 2)
+  min_limit         Float?
+  max_limit         Float?
+  min_withdrawal    Float?
+  max_withdrawal    Float?
 
   @@index([group])
   @@index([is_active])
@@ -877,12 +884,12 @@ model group_management {
 }
 
 model SymbolGroupAccess {
-  id                Int       @id @default(autoincrement())
-  symbol            String    @db.VarChar(100)
-  group_name        String    @db.VarChar(255)
-  is_allowed        Boolean   @default(true)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  id         Int      @id @default(autoincrement())
+  symbol     String   @db.VarChar(100)
+  group_name String   @db.VarChar(255)
+  is_allowed Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   @@unique([symbol, group_name])
   @@index([symbol])
@@ -959,21 +966,27 @@ model country_admins {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model email_templates {
-  id                Int       @id @default(autoincrement())
-  name              String    @unique @db.VarChar(255)
-  description       String?
-  html_code         String
-  variables         String[]  @default([])
-  is_default        Boolean?  @default(false)
-  preview_image_url String?   @db.VarChar(500)
-  created_at        DateTime? @default(now()) @db.Timestamp(6)
-  updated_at        DateTime? @default(now()) @db.Timestamp(6)
-  created_by        String?   @db.VarChar(255)
+  id                  Int                   @id @default(autoincrement())
+  name                String                @unique @db.VarChar(255)
+  description         String?
+  html_code           String
+  variables           String[]              @default([])
+  is_default          Boolean               @default(false)
+  created_at          DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?             @default(now()) @db.Timestamptz(6)
+  created_by          String?               @db.VarChar(255)
+  category            String?               @db.VarChar(50)
+  email_type          String?               @db.VarChar(100)
+  from_email          String?               @db.VarChar(255)
+  email_type_mappings email_type_mappings[]
+  unified_actions     unified_actions[]
 
-  @@index([created_at], map: "idx_email_templates_created_at")
-  @@index([created_by], map: "idx_email_templates_created_by")
-  @@index([is_default], map: "idx_email_templates_is_default")
-  @@index([name], map: "idx_email_templates_name")
+  @@index([category])
+  @@index([created_at])
+  @@index([created_by])
+  @@index([email_type])
+  @@index([is_default])
+  @@index([name])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1210,7 +1223,7 @@ model PriceAlert {
   userId      String
   symbol      String
   targetPrice Float
-  condition   String    // "above" or "below"
+  condition   String
   isActive    Boolean   @default(true)
   isTriggered Boolean   @default(false)
   triggeredAt DateTime?
@@ -1220,4 +1233,169 @@ model PriceAlert {
   @@index([userId])
   @@index([isActive])
   @@index([symbol])
+}
+
+model DigiPay247Deposit {
+  id                 String    @id
+  deposit_id         String    @unique
+  transaction_id     String?   @unique
+  merchant_txn_id    String    @unique
+  merchant_user_id   String?
+  status             String    @default("pending")
+  payment_url        String?
+  amount             Float
+  currency           String    @default("USD")
+  webhook_data       Json?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @default(now())
+  utr_transaction_id String?
+  proof_file_url     String?
+  proof_submitted_at DateTime?
+  Deposit            Deposit   @relation(fields: [deposit_id], references: [id], onDelete: Cascade)
+
+  @@index([deposit_id])
+  @@index([merchant_txn_id])
+  @@index([status])
+  @@index([transaction_id])
+}
+
+model FCMToken {
+  id         String   @id
+  userId     String
+  token      String   @unique @db.VarChar(500)
+  deviceInfo Json?
+  platform   String?  @db.VarChar(50)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @db.Timestamptz(6)
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([platform])
+  @@index([token])
+  @@index([userId])
+}
+
+model UnipaymentDeposit {
+  id                String    @id
+  deposit_id        String    @unique
+  invoice_id        String    @unique
+  unipayment_status String    @default("pending")
+  invoice_url       String?
+  payment_method    String?
+  amount            Float
+  currency          String    @default("USD")
+  qr_code_url       String?
+  crypto_address    String?
+  expires_at        DateTime?
+  webhook_data      Json?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now())
+  Deposit           Deposit   @relation(fields: [deposit_id], references: [id], onDelete: Cascade)
+
+  @@index([deposit_id])
+  @@index([invoice_id])
+  @@index([unipayment_status])
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model deposit_payment_methods {
+  id             Int       @id @default(autoincrement())
+  method_key     String    @unique @db.VarChar(100)
+  display_name   String    @db.VarChar(255)
+  method_type    String    @db.VarChar(50)
+  method_subtype String?   @db.VarChar(50)
+  icon_path      String?   @db.VarChar(500)
+  display_order  Int       @default(0)
+  is_enabled     Boolean   @default(true)
+  metadata       Json?     @default("{}")
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+  fixed_rate     Decimal?  @default(92.00) @db.Decimal(10, 2)
+  min_limit      Float?
+  max_limit      Float?
+
+  @@index([display_order])
+  @@index([is_enabled])
+  @@index([method_key])
+  @@index([method_type])
+}
+
+model email_type_mappings {
+  id              Int             @id @default(autoincrement())
+  email_type      String          @unique @db.VarChar(100)
+  template_id     Int
+  is_active       Boolean         @default(true)
+  created_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?       @default(now()) @db.Timestamptz(6)
+  created_by      String?         @db.VarChar(255)
+  email_templates email_templates @relation(fields: [template_id], references: [id])
+
+  @@index([created_at])
+  @@index([email_type])
+  @@index([is_active])
+  @@index([template_id])
+}
+
+model instruments {
+  id             Int       @id @default(autoincrement())
+  symbol_name    String    @unique @db.VarChar(50)
+  description    String?
+  symbol_type    String?   @db.VarChar(20)
+  group_name     String?   @db.VarChar(100)
+  digits         Int?      @default(5)
+  spread         Float?    @default(0)
+  contract_size  Int?      @default(100000)
+  profit_mode    String?   @default("forex") @db.VarChar(20)
+  enable         Boolean?  @default(true)
+  swap_mode      String?   @default("disabled") @db.VarChar(20)
+  swap_long      Float?    @default(0)
+  swap_short     Float?    @default(0)
+  swap3_day      String?   @default("wednesday") @db.VarChar(10)
+  metadata       Json?     @default("{}")
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  updated_at     DateTime? @default(now()) @db.Timestamp(6)
+  category       String?   @db.VarChar(50)
+  base_currency  String?   @db.VarChar(10)
+  quote_currency String?   @db.VarChar(10)
+  tick_size      Float?
+  volume_min     Float?
+  volume_max     Float?
+  trade_mode     Int?
+  sector         String?   @db.VarChar(50)
+  country        String?   @db.VarChar(50)
+  path           String?   @db.VarChar(255)
+
+  @@index([group_name])
+}
+
+model sender_emails {
+  id            Int       @id @default(autoincrement())
+  email_address String    @unique @db.VarChar(255)
+  display_name  String?   @db.VarChar(255)
+  description   String?
+  is_active     Boolean   @default(true)
+  is_default    Boolean   @default(false)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+  created_by    String?   @db.VarChar(255)
+
+  @@index([created_at])
+  @@index([email_address])
+  @@index([is_active])
+  @@index([is_default])
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model unified_actions {
+  id              Int              @id @default(autoincrement())
+  action_name     String           @unique @db.VarChar(255)
+  system_type     String           @db.VarChar(50)
+  template_id     Int?
+  created_at      DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?        @default(now()) @db.Timestamptz(6)
+  email_templates email_templates? @relation(fields: [template_id], references: [id])
+
+  @@index([action_name])
+  @@index([system_type, action_name])
+  @@index([system_type])
+  @@index([template_id])
 }

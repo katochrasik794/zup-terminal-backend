@@ -30,34 +30,48 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
             targetGroup = group.replace('\\Bbook\\', '\\LP\\');
         }
 
-        const instruments = await prisma.instrument.findMany({
-            where: {
-                OR: [
-                    { group: targetGroup },
-                    { group: group }
-                ],
-                isActive: true,
-            },
-            include: {
-                UserFavorite: {
-                    where: {
-                        userId,
-                        // If accountId is provided, filter by it, otherwise global favorites?
-                        // Schema says mt5AccountId is optional.
-                        mt5AccountId: accountId as string || null
+        const [instruments, symbolDetails] = await Promise.all([
+            prisma.instrument.findMany({
+                where: {
+                    OR: [
+                        { group: targetGroup },
+                        { group: group }
+                    ],
+                    isActive: true,
+                },
+                include: {
+                    UserFavorite: {
+                        where: {
+                            userId,
+                            mt5AccountId: accountId as string || null
+                        }
                     }
                 }
-            }
+            }),
+            prisma.symbols_with_categories.findMany({})
+        ]);
+
+        // Create a map for quick lookup
+        const detailsMap = new Map();
+        symbolDetails.forEach(detail => {
+            detailsMap.set(detail.symbol, detail);
         });
 
-        // Flatten favorite status and sort order
+        // Flatten favorite status and sort order AND merge details
         const data = instruments.map(inst => {
             const fav = inst.UserFavorite[0];
+            const detail = detailsMap.get(inst.symbol);
+
             return {
                 ...inst,
                 favorite: !!fav,
                 sortOrder: fav?.sortOrder ?? 99999, // default to end
-                UserFavorite: undefined // remove join data
+                UserFavorite: undefined, // remove join data
+                // Merge details from symbols_with_categories
+                contractSize: detail?.contract_size || inst.contractSize || 100000,
+                spread: detail?.spread ? Number(detail.spread) : inst.spread, // Prefer extra table
+                commission: detail?.commission ? Number(detail.commission) : 0,
+                pipValue: detail?.pip_value ? Number(detail.pip_value) : undefined
             };
         }).sort((a, b) => {
             // Sort by sortOrder first, then by symbol
