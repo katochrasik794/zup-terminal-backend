@@ -571,7 +571,7 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
     };
 
     if (price !== undefined) {
-      modifyPayload.PriceOrder = parseFloat(price);
+      modifyPayload.Price = parseFloat(price);
     }
     if (volume !== undefined) {
       // Convert volume: frontend sends in lots, API expects in lots * 100
