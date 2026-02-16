@@ -1399,3 +1399,15 @@ model unified_actions {
   @@index([system_type])
   @@index([template_id])
 }
+
+model ib_symbol_spreads {
+  id             String   @id @default(uuid())
+  symbol         String   @unique
+  contract_size  Float    @default(1)
+  pro_spread     Float    @default(0)
+  startup_spread Float    @default(0)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([symbol])
+}
