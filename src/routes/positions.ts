@@ -792,12 +792,6 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
         if (ordersResponse.ok) {
           const ordersData = await ordersResponse.json() as any;
           pendingOrders = ordersData?.orders || ordersData?.data || ordersData || [];
-          console.log('[Positions API] Pending Orders Raw:', JSON.stringify(pendingOrders.slice(0, 3).map((o: any) => ({
-            id: o.id || o.Id,
-            symbol: o.symbol || o.Symbol,
-            volume: o.volume || o.Volume,
-            type: o.type || o.Type
-          })), null, 2));
         }
       } catch (err) {
         // Continue with empty array
