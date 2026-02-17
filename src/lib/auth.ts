@@ -46,8 +46,12 @@ export function verifyToken(token: string): JWTPayload | null {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
     return decoded;
-  } catch (error) {
-    console.error('Token verification failed:', error);
+  } catch (error: any) {
+    // Existing logging
+    console.error(`[Auth] Token verification failed: ${error.message} (Secret length: ${JWT_SECRET.length})`);
+    // Adding more detailed logging as per instruction, assuming the user wants to log the token itself
+    // but only a part of it for security/verbosity reasons.
+    console.error(`[Auth] Failed token (first 10 chars): ${token.substring(0, 10)}...`);
     return null;
   }
 }

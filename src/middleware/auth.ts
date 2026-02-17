@@ -38,7 +38,7 @@ export function authenticateToken(
 
   const payload = verifyToken(token);
   if (!payload) {
-    console.log('[AuthMiddleware] Token verification failed');
+    console.log('[AuthMiddleware] Token verification failed for token snippet:', token.substring(0, 10) + '...');
     res.status(401).json({
       success: false,
       message: 'Invalid or expired token. Please log in again.',

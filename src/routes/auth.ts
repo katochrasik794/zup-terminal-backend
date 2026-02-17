@@ -343,7 +343,7 @@ router.post('/sso-login', async (req: Request, res: Response) => {
     // NEW: Verify the token from CRM
     const decoded = verifyToken(token);
     if (!decoded) {
-      console.error('SSO Token verification failed');
+      console.error('SSO Token verification failed for token snippet:', token.substring(0, 10) + '...');
       return res.status(401).json({
         success: false,
         message: 'Invalid or expired SSO token.',
