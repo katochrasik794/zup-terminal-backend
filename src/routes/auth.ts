@@ -341,14 +341,18 @@ router.post('/sso-login', async (req: Request, res: Response) => {
     }
 
     // NEW: Verify the token from CRM
+    console.log(`[SSO] 🔍 Verifying incoming token for clientId: ${clientId}`);
     const decoded = verifyToken(token);
     if (!decoded) {
-      console.error('SSO Token verification failed for token snippet:', token.substring(0, 10) + '...');
+      console.error('[SSO] ❌ Token verification failed');
       return res.status(401).json({
         success: false,
         message: 'Invalid or expired SSO token.',
+        error: 'VERIFICATION_FAILED'
       });
     }
+
+    console.log('[SSO] ✅ Token verified successfully. Decoded payload:', decoded);
 
     // Find user by clientId
     const user = await prisma.user.findUnique({
@@ -356,19 +360,29 @@ router.post('/sso-login', async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      console.error('User not found for clientId:', clientId);
+      console.error('[SSO] ❌ User not found for clientId:', clientId);
       return res.status(404).json({
         success: false,
-        message: 'User not found.',
+        message: 'User account not found in terminal database.',
+        error: 'USER_NOT_FOUND'
       });
     }
 
     // Strict clientId/id check
-    if (decoded.clientId !== user.clientId && decoded.id !== user.id) {
-      console.error('SSO Token mismatch:', { decoded, userClientId: user.clientId, userId: user.id });
+    // Some systems pass "id" instead of "clientId" in the payload
+    const payloadId = decoded.clientId || decoded.id || decoded.userId;
+    const isOwner = (payloadId === user.clientId || payloadId === user.id);
+
+    if (!isOwner) {
+      console.error('[SSO] ❌ Token ownership mismatch:', {
+        payloadId,
+        userClientId: user.clientId,
+        userId: user.id
+      });
       return res.status(401).json({
         success: false,
-        message: 'SSO token mismatch.',
+        message: 'SSO token mismatch (identity mismatch).',
+        error: 'IDENTITY_MISMATCH'
       });
     }
 

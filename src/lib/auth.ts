@@ -47,11 +47,24 @@ export function verifyToken(token: string): JWTPayload | null {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
     return decoded;
   } catch (error: any) {
-    // Existing logging
-    console.error(`[Auth] Token verification failed: ${error.message} (Secret length: ${JWT_SECRET.length})`);
-    // Adding more detailed logging as per instruction, assuming the user wants to log the token itself
-    // but only a part of it for security/verbosity reasons.
-    console.error(`[Auth] Failed token (first 10 chars): ${token.substring(0, 10)}...`);
+    // Categorize error for better debugging
+    let errorType = 'UNKNOWN_ERROR';
+    if (error.name === 'TokenExpiredError') {
+      errorType = 'EXPIRED';
+    } else if (error.name === 'JsonWebTokenError') {
+      if (error.message.includes('signature')) {
+        errorType = 'INVALID_SIGNATURE (Secret Mismatch?)';
+      } else {
+        errorType = 'INVALID_TOKEN';
+      }
+    }
+
+    console.error(`[Auth] ❌ Token verification failed!`);
+    console.error(`  - Error Type: ${errorType}`);
+    console.error(`  - Message: ${error.message}`);
+    console.error(`  - Secret used: ${JWT_SECRET.substring(0, 5)}... (Length: ${JWT_SECRET.length})`);
+    console.error(`  - Token start: ${token.substring(0, 15)}...`);
+
     return null;
   }
 }
