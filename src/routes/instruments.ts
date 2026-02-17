@@ -136,7 +136,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
                 contractSize: contractSize,
                 spread: spreadVal,
                 commission: 0,
-                pipValue: undefined // Let frontend calc or use default
+                pipValue: spreadData?.pip_value ? Number(spreadData.pip_value) : undefined // Use DB pip_value if available
             };
         }).sort((a, b) => {
             // Sort by sortOrder first, then by symbol
