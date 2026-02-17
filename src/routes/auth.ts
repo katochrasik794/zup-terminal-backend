@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/db.js';
 import {
   comparePassword,
@@ -345,6 +346,15 @@ router.post('/sso-login', async (req: Request, res: Response) => {
     const decoded = verifyToken(token);
     if (!decoded) {
       console.error('[SSO] ❌ Token verification failed');
+
+      // Try to decode without verification to see what's inside (for debugging)
+      try {
+        const unverifiedDecode = jwt.decode(token);
+        console.error('[SSO] 🔍 Unverified Token Payload:', JSON.stringify(unverifiedDecode, null, 2));
+      } catch (e) {
+        console.error('[SSO] 💥 Could not decode token even without verification:', e);
+      }
+
       return res.status(401).json({
         success: false,
         message: 'Invalid or expired SSO token.',

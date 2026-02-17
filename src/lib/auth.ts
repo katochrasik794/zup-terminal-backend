@@ -44,6 +44,11 @@ export function generateToken(payload: JWTPayload): string {
  */
 export function verifyToken(token: string): JWTPayload | null {
   try {
+    // Strip 'Bearer ' prefix if present
+    if (token.startsWith('Bearer ')) {
+      token = token.slice(7, token.length);
+    }
+
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
     return decoded;
   } catch (error: any) {
