@@ -1,6 +1,6 @@
 
 import 'dotenv/config';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 
 async function inspect() {
     const total = await prisma.instrument.count();
