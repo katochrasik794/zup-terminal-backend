@@ -328,7 +328,9 @@ router.post('/logout', (req: Request, res: Response) => {
  */
 router.post('/sso-login', async (req: Request, res: Response) => {
   try {
-    const { token, clientId } = req.body;
+    const { token, clientId, accountId } = req.body;
+
+    console.log('SSO Login attempt:', { clientId, accountId, hasToken: !!token });
 
     // Validate input
     if (!token || !clientId) {
@@ -338,15 +340,35 @@ router.post('/sso-login', async (req: Request, res: Response) => {
       });
     }
 
+    // NEW: Verify the token from CRM
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      console.error('SSO Token verification failed');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired SSO token.',
+      });
+    }
+
     // Find user by clientId
     const user = await prisma.user.findUnique({
       where: { clientId: clientId },
     });
 
     if (!user) {
+      console.error('User not found for clientId:', clientId);
       return res.status(404).json({
         success: false,
         message: 'User not found.',
+      });
+    }
+
+    // Strict clientId/id check
+    if (decoded.clientId !== user.clientId && decoded.id !== user.id) {
+      console.error('SSO Token mismatch:', { decoded, userClientId: user.clientId, userId: user.id });
+      return res.status(401).json({
+        success: false,
+        message: 'SSO token mismatch.',
       });
     }
 
@@ -371,14 +393,36 @@ router.post('/sso-login', async (req: Request, res: Response) => {
       clientId: user.clientId,
     });
 
-    // Get user's MT5 account
-    const mt5Account = await prisma.mT5Account.findFirst({
-      where: { userId: user.id },
-      select: {
-        id: true,
-        accountId: true,
-      },
-    });
+    // Get user's MT5 account (prioritize passed accountId)
+    let mt5Account = null;
+    if (accountId) {
+      mt5Account = await prisma.mT5Account.findFirst({
+        where: {
+          userId: user.id,
+          accountId: accountId.toString()
+        },
+        select: {
+          id: true,
+          accountId: true,
+        },
+      });
+      if (mt5Account) {
+        console.log('SSO: Selected specific accountId:', accountId);
+      }
+    }
+
+    if (!mt5Account) {
+      mt5Account = await prisma.mT5Account.findFirst({
+        where: { userId: user.id },
+        select: {
+          id: true,
+          accountId: true,
+        },
+      });
+      if (mt5Account) {
+        console.log('SSO: Fallback to first available account:', mt5Account.accountId);
+      }
+    }
 
     // Set session cookie
     res.cookie('token', terminalToken, {
@@ -388,6 +432,8 @@ router.post('/sso-login', async (req: Request, res: Response) => {
       maxAge: 60 * 60 * 24 * 7 * 1000, // 7 days
       path: '/',
     });
+
+    console.log('SSO Login successful for user:', user.email);
 
     // Return success response
     return res.status(200).json({
