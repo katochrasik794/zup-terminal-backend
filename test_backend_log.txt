@@ -1,9 +1,0 @@
-﻿Input: 'real\Bbook\Pro\dynamic-2000x-10P'
-Escaped Group: 'real\\Bbook\\Pro\\dynamic-2000x-10P'
-Target: 'real\LP\Pro\dynamic-2000x-10P'
-Escaped Target: 'real\\LP\\Pro\\dynamic-2000x-10P'
-Found 3 matches.
-Sample: {
-  symbol: 'AAPL.OQ',
-  group: 'real\\Bbook\\Pro\\dynamic-2000x-10P,real\\Bbook\\Startup\\dynamic-2000x-20Pips,demo\\Pro\\dynamic-2000x-10PAbook'
-}
