@@ -413,17 +413,19 @@ router.post('/:positionId/close', authenticateToken, async (req: Request, res: R
     const final = fallback2 ?? fallback1 ?? primary;
 
     // Check for success - handle both HTTP status and response body (matching zuperior-terminal)
-    const isSuccess = final.res.ok || final.res.status === 204 || final.res.status === 200;
+    const returnCode = final.json?.returnCode || final.json?.ReturnCode;
+    const isRequestPlaced = returnCode === 10012;
+    const isSuccess = final.res.ok || final.res.status === 204 || final.res.status === 200 || isRequestPlaced;
     const responseSuccess = final.json?.success || final.json?.Success || final.json?.success === true || final.json?.Success === true;
 
-    // If HTTP is OK but response says failure, treat as failure
-    if (isSuccess && responseSuccess !== false) {
+    // If HTTP is OK but response says failure, treat as failure (unless 10012)
+    if (isSuccess && (responseSuccess !== false || isRequestPlaced)) {
       // Success - return immediately
-      return res.status(final.res.status).json({
+      return res.status(isRequestPlaced ? 200 : final.res.status).json({
         success: true,
         Success: true, // Include both formats for compatibility
         data: final.json,
-        message: 'Position closed successfully'
+        message: isRequestPlaced ? 'Close request placed' : 'Position closed successfully'
       });
     }
 
@@ -601,10 +603,14 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
     }, 35000);
 
     // If primary succeeds, return immediately
-    if (primary.res.ok) {
+    const primaryReturnCode = primary.json?.returnCode || primary.json?.ReturnCode;
+    const primaryIsRequestPlaced = primaryReturnCode === 10012;
+
+    if (primary.res.ok || primaryIsRequestPlaced) {
       return res.json({
         success: true,
         data: primary.json,
+        message: primaryIsRequestPlaced ? 'Modify request placed' : undefined
       });
     }
 
@@ -632,10 +638,18 @@ router.put('/:positionId/modify', authenticateToken, async (req: Request, res: R
     }, 35000);
 
     // Choose best response to forward
-    const forward = secondary.res.ok ? secondary : primary;
-    return res.status(forward.res.status).json({
-      success: forward.res.ok,
+    const secondaryReturnCode = secondary.json?.returnCode || secondary.json?.ReturnCode;
+    const secondaryIsRequestPlaced = secondaryReturnCode === 10012;
+    const secondarySuccess = secondary.res.ok || secondaryIsRequestPlaced;
+
+    const forward = secondarySuccess ? secondary : primary;
+    const forwardIsRequestPlaced = (forward === secondary ? secondaryIsRequestPlaced : primaryIsRequestPlaced);
+    const forwardSuccessState = (forward === secondary ? secondarySuccess : (primary.res.ok || primaryIsRequestPlaced));
+
+    return res.status(forwardSuccessState ? 200 : forward.res.status).json({
+      success: forwardSuccessState,
       data: forward.json,
+      message: forwardIsRequestPlaced ? 'Modify request placed' : undefined
     });
   } catch (error) {
     console.error('[Positions] Modify position error:', error);

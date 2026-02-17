@@ -166,6 +166,18 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
       }
 
       if (!orderResponse.ok) {
+        // Handle 10012 return code (Request Placed) - treated as success in terminal
+        const returnCode = orderData?.returnCode || orderData?.ReturnCode;
+        if (returnCode === 10012) {
+          console.log('[Orders] Market order: Request Placed (10012) - treating as success');
+          return res.json({
+            success: true,
+            data: orderData,
+            message: 'Order initiated. Processing on server.',
+            status: 'placed'
+          });
+        }
+
         console.error('[Orders] Market order failed:', {
           status: orderResponse.status,
           statusText: orderResponse.statusText,
@@ -418,6 +430,18 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
       });
 
       if (!orderResponse.ok) {
+        // Handle 10012 return code (Request Placed) - treated as success in terminal
+        const returnCode = orderData?.returnCode || orderData?.ReturnCode;
+        if (returnCode === 10012) {
+          console.log('[Orders] Pending order: Request Placed (10012) - treating as success');
+          return res.json({
+            success: true,
+            data: orderData,
+            message: 'Order initiated. Processing on server.',
+            status: 'placed'
+          });
+        }
+
         console.error('[Orders] Pending order API error:', {
           status: orderResponse.status,
           statusText: orderResponse.statusText,
