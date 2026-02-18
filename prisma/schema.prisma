@@ -84,6 +84,8 @@ model MT5Account {
   archived          Boolean             @default(false)
   archived_at       DateTime?           @db.Timestamptz(6)
   group             String?
+  killSwitchActive  Boolean             @default(false)
+  killSwitchUntil   DateTime?
   DefaultMT5Account DefaultMT5Account[]
   deposits          Deposit[]           @relation("deposits")
   user              User?               @relation("mt5Accounts", fields: [userId], references: [id])
@@ -555,18 +557,19 @@ model chat_participants {
 }
 
 model group_commission_structures {
-  id                      Int       @id @default(autoincrement())
-  group_id                String    @db.VarChar(255)
-  structure_name          String    @db.VarChar(100)
-  usd_per_lot             Decimal   @default(0.00) @db.Decimal(10, 2)
-  spread_share_percentage Decimal   @default(0.00) @db.Decimal(5, 2)
-  is_active               Boolean   @default(true)
-  created_at              DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
-  level_order             Int       @default(1)
-  min_trading_volume      Decimal?  @default(0) @db.Decimal(15, 2)
-  max_trading_volume      Decimal?  @db.Decimal(15, 2)
-  min_active_clients      Int?      @default(0)
+  id                        Int                         @id @default(autoincrement())
+  group_id                  String                      @db.VarChar(255)
+  structure_name            String                      @db.VarChar(100)
+  usd_per_lot               Decimal                     @default(0.00) @db.Decimal(10, 2)
+  spread_share_percentage   Decimal                     @default(0.00) @db.Decimal(5, 2)
+  is_active                 Boolean                     @default(true)
+  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  level_order               Int                         @default(1)
+  min_trading_volume        Decimal?                    @default(0) @db.Decimal(15, 2)
+  max_trading_volume        Decimal?                    @db.Decimal(15, 2)
+  min_active_clients        Int?                        @default(0)
+  structure_set_assignments structure_set_assignments[]
 
   @@unique([group_id, structure_name])
   @@unique([group_id, level_order], map: "ux_commission_group_level")
@@ -607,10 +610,14 @@ model ib_requests {
   country                   String?                @db.VarChar(100)
   usd_per_lot               Decimal?               @db.Decimal(10, 2)
   spread_percentage_per_lot Decimal?               @db.Decimal(5, 2)
+  structure_set_id          Int?
   ib_group_assignments      ib_group_assignments[]
+  structure_sets            structure_sets?        @relation(fields: [structure_set_id], references: [id], onUpdate: NoAction)
+  ib_trade_history          ib_trade_history[]
 
   @@index([referral_code], map: "idx_ib_requests_referral_code")
   @@index([referred_by], map: "idx_ib_requests_referred_by")
+  @@index([structure_set_id], map: "idx_ib_requests_structure_set_id")
 }
 
 model manual_gateway {
@@ -698,30 +705,37 @@ model ib_group_assignments {
 }
 
 model ib_trade_history {
-  id            String    @id
-  order_id      String    @unique
-  account_id    String
-  user_id       String?
-  ib_request_id Int?
-  symbol        String
-  order_type    String
-  volume_lots   Decimal   @db.Decimal
-  open_price    Decimal?  @db.Decimal
-  close_price   Decimal?  @db.Decimal
-  profit        Decimal?  @db.Decimal
-  created_at    DateTime? @default(now()) @db.Timestamp(6)
-  updated_at    DateTime? @default(now()) @db.Timestamp(6)
-  synced_at     DateTime? @default(now()) @db.Timestamp(6)
-  group_id      String?
-  ib_commission Decimal?  @default(0) @db.Decimal
-  stop_loss     Decimal?  @db.Decimal
-  take_profit   Decimal?  @db.Decimal
+  id                Int          @id @default(autoincrement())
+  account_id        String       @db.VarChar(255)
+  user_id           String?      @db.VarChar(255)
+  ib_request_id     Int?
+  order_id          String?      @db.VarChar(255)
+  symbol            String?      @db.VarChar(50)
+  order_type        String?      @db.VarChar(50)
+  volume_lots       Decimal?     @db.Decimal(20, 3)
+  volume_contract   Decimal?     @db.Decimal(20, 3)
+  open_price        Decimal?     @db.Decimal(20, 6)
+  close_price       Decimal?     @db.Decimal(20, 6)
+  profit            Decimal?     @db.Decimal(20, 6)
+  fix_commission    Decimal?     @default(0) @db.Decimal(20, 3)
+  spread_commission Decimal?     @default(0) @db.Decimal(20, 3)
+  total_commission  Decimal?     @default(0) @db.Decimal(20, 3)
+  group_id          String?      @db.VarChar(255)
+  open_time         DateTime?    @db.Timestamptz(6)
+  close_time        DateTime?    @db.Timestamptz(6)
+  synced_at         DateTime?    @default(now()) @db.Timestamptz(6)
+  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  ib_requests       ib_requests? @relation(fields: [ib_request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([account_id], map: "idx_ib_trade_account")
-  @@index([group_id], map: "idx_ib_trade_group")
-  @@index([ib_request_id], map: "idx_ib_trade_ib")
-  @@index([symbol], map: "idx_ib_trade_symbol")
-  @@index([user_id], map: "idx_ib_trade_user")
+  @@unique([order_id, account_id], map: "ib_trade_history_order_account_unique")
+  @@index([account_id], map: "idx_ib_trade_history_account_id")
+  @@index([close_time], map: "idx_ib_trade_history_close_time")
+  @@index([group_id], map: "idx_ib_trade_history_group_id")
+  @@index([ib_request_id], map: "idx_ib_trade_history_ib_request_id")
+  @@index([order_id], map: "idx_ib_trade_history_order_id")
+  @@index([symbol], map: "idx_ib_trade_history_symbol")
+  @@index([user_id], map: "idx_ib_trade_history_user_id")
 }
 
 model support_tickets {
@@ -1408,6 +1422,34 @@ model ib_symbol_spreads {
   startup_spread Float    @default(0)
   created_at     DateTime @default(now()) @db.Timestamptz(6)
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  group_name     String?  @db.VarChar(100)
+  category       String?  @db.VarChar(100)
+  pip_value      Decimal? @default(1) @db.Decimal(15, 5)
 
   @@index([symbol])
+}
+
+model structure_set_assignments {
+  id                          Int                         @id @default(autoincrement())
+  structure_set_id            Int
+  commission_structure_id     Int
+  created_at                  DateTime?                   @default(now()) @db.Timestamptz(6)
+  group_commission_structures group_commission_structures @relation(fields: [commission_structure_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  structure_sets              structure_sets              @relation(fields: [structure_set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([structure_set_id, commission_structure_id])
+  @@index([structure_set_id], map: "idx_structure_set_assignments_set")
+  @@index([commission_structure_id], map: "idx_structure_set_assignments_structure")
+}
+
+model structure_sets {
+  id                        Int                         @id @default(autoincrement())
+  name                      String                      @unique @db.VarChar(255)
+  description               String?
+  stage                     Int?                        @default(1)
+  is_active                 Boolean?                    @default(true)
+  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  ib_requests               ib_requests[]
+  structure_set_assignments structure_set_assignments[]
 }

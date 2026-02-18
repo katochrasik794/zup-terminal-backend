@@ -394,6 +394,8 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
         currency: true,
         group: true,
         accountType: true,
+        killSwitchActive: true,
+        killSwitchUntil: true,
       }
     });
 
@@ -436,6 +438,8 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
           accountType: accountType,
           Currency: mt5Account.currency || 'USD',
           currency: mt5Account.currency || 'USD',
+          killSwitchActive: mt5Account.killSwitchActive,
+          killSwitchUntil: mt5Account.killSwitchUntil,
         }
       });
     }
@@ -536,6 +540,8 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
                 accountType: accountType,
                 Currency: (balanceData.Currency ?? balanceData.currency ?? mt5Account.currency) || 'USD',
                 currency: (balanceData.Currency ?? balanceData.currency ?? mt5Account.currency) || 'USD',
+                killSwitchActive: mt5Account.killSwitchActive,
+                killSwitchUntil: mt5Account.killSwitchUntil,
               }
             });
           }
@@ -576,6 +582,8 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
         accountType: accountType,
         Currency: mt5Account.currency || 'USD',
         currency: mt5Account.currency || 'USD',
+        killSwitchActive: mt5Account.killSwitchActive,
+        killSwitchUntil: mt5Account.killSwitchUntil,
       }
     });
   } catch (error) {
