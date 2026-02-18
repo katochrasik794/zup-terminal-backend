@@ -30,7 +30,9 @@ model User {
   accounts             Account[]          @relation("accounts")
   activityLogs         ActivityLog[]      @relation("activityLogs")
   DefaultMT5Account    DefaultMT5Account?
-  deposits             Deposit[]          @relation("deposits")
+  manualDeposits       Deposit[]          @relation("deposits")
+  withdrawals          Withdrawal[]
+  transactions         Transaction[]
   kyc                  KYC?               @relation("kyc")
   mt5Accounts          MT5Account[]       @relation("mt5Accounts")
   notifications        Notification[]     @relation("notifications")
@@ -210,6 +212,8 @@ model Withdrawal {
   walletAddress         String?
   walletId              String?
   mt5AccountId          String?
+  user                  User      @relation(fields: [userId], references: [id])
+
 
   @@index([userId])
   @@index([mt5AccountId])
@@ -926,6 +930,7 @@ model Transaction {
   withdrawalId  String?
   updatedAt     DateTime
   createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
 
   @@index([depositId])
   @@index([status])
