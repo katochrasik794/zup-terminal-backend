@@ -30,7 +30,7 @@ model User {
   accounts             Account[]          @relation("accounts")
   activityLogs         ActivityLog[]      @relation("activityLogs")
   DefaultMT5Account    DefaultMT5Account?
-  manualDeposits       Deposit[]          @relation("deposits")
+  deposits             Deposit[]          @relation("deposits")
   withdrawals          Withdrawal[]
   transactions         Transaction[]
   kyc                  KYC?               @relation("kyc")
