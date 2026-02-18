@@ -31,6 +31,8 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         accountType: true,
         group: true,
         createdAt: true,
+        killSwitchActive: true,
+        killSwitchUntil: true,
       },
       orderBy: {
         createdAt: 'asc',
@@ -57,6 +59,8 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       accountType: account.accountType || 'Live',
       group: account.group || '',
       linkedAt: account.createdAt.toISOString(),
+      killSwitchActive: account.killSwitchActive,
+      killSwitchUntil: account.killSwitchUntil,
     }));
 
     const fallbackDefault = formattedAccounts[0]?.accountId;
