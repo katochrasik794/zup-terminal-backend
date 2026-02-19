@@ -86,13 +86,13 @@ model MT5Account {
   archived          Boolean             @default(false)
   archived_at       DateTime?           @db.Timestamptz(6)
   group             String?
-  killSwitchActive  Boolean             @default(false)
-  killSwitchUntil   DateTime?
   DefaultMT5Account DefaultMT5Account[]
   deposits          Deposit[]           @relation("deposits")
   user              User?               @relation("mt5Accounts", fields: [userId], references: [id])
   mt5Transactions   MT5Transaction[]    @relation("mt5Transactions")
   UserFavorite      UserFavorite[]
+  killSwitchActive  Boolean             @default(false)
+  killSwitchUntil   DateTime?
 
   @@index([archived], map: "idx_mt5account_archived")
   @@index([userId, archived], map: "idx_mt5account_userid_archived")
