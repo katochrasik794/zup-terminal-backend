@@ -27,7 +27,7 @@ export function authenticateToken(
       : req.cookies?.token;
 
   if (!token) {
-    console.log('[AuthMiddleware] No token found in headers or cookies');
+    // console.log('[AuthMiddleware] No token found in headers or cookies');
     res.status(401).json({
       success: false,
       message: 'Unauthorized. Please log in again.',
@@ -38,7 +38,7 @@ export function authenticateToken(
 
   const payload = verifyToken(token);
   if (!payload) {
-    console.log('[AuthMiddleware] Token verification failed for token snippet:', token.substring(0, 10) + '...');
+    // console.log('[AuthMiddleware] Token verification failed for token snippet:', token.substring(0, 10) + '...');
     res.status(401).json({
       success: false,
       message: 'Invalid or expired token. Please log in again.',

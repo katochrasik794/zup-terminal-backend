@@ -41,7 +41,7 @@ app.use(cors({
     if (!origin) {
       return callback(null, true);
     }
-    
+
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -82,11 +82,20 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📡 Environment: ${env.NODE_ENV}`);
-  console.log(`🔗 Frontend URL: ${env.FRONTEND_URL}`);
-  console.log(`🌐 Allowed CORS origins: ${allowedOrigins.join(', ')}`);
+  // console.log(`📡 Environment: ${env.NODE_ENV}`);
+  // console.log(`🔗 Frontend URL: ${env.FRONTEND_URL}`);
+  // console.log(`🌐 Allowed CORS origins: ${allowedOrigins.join(', ')}`);
+});
+
+server.on('error', (error: any) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use.`);
+  } else {
+    console.error('❌ Server startup error:', error);
+  }
+  process.exit(1);
 });
 
 export default app;

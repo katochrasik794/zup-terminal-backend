@@ -234,7 +234,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
     // Check cache first
     const cachedToken = tokenCache.get(accountId);
     if (cachedToken) {
-      console.log(`[AccountLogin] Using cached token for accountId: ${accountId}`);
+      // console.log(`[AccountLogin] Using cached token for accountId: ${accountId}`);
       return res.json({
         success: true,
         data: {
@@ -319,7 +319,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
 
       if (loginResponse.ok) {
         const loginData = await loginResponse.json() as any;
-        console.log(`[AccountLogin] MetaAPI login successful for accountId: ${accountId}`);
+        // console.log(`[AccountLogin] MetaAPI login successful for accountId: ${accountId}`);
 
         // Check for Token (capital T) first, as that's what the API returns
         const accessToken = loginData?.Token || loginData?.accessToken || loginData?.AccessToken || loginData?.data?.accessToken || loginData?.token;
@@ -338,7 +338,7 @@ router.post('/:accountId/metaapi-login', authenticateToken, async (req: Request,
         }
       }
 
-      console.log(`[AccountLogin] MetaAPI login failed for accountId: ${accountId}, status: ${loginResponse.status}`);
+      // console.log(`[AccountLogin] MetaAPI login failed for accountId: ${accountId}, status: ${loginResponse.status}`);
       return res.status(401).json({
         success: false,
         message: 'Failed to authenticate with MetaAPI',

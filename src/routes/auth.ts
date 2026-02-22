@@ -331,7 +331,7 @@ router.post('/sso-login', async (req: Request, res: Response) => {
   try {
     const { token, clientId, accountId } = req.body;
 
-    console.log('SSO Login attempt:', { clientId, accountId, hasToken: !!token });
+    // console.log('SSO Login attempt:', { clientId, accountId, hasToken: !!token });
 
     // Validate input
     if (!token || !clientId) {
@@ -342,7 +342,7 @@ router.post('/sso-login', async (req: Request, res: Response) => {
     }
 
     // NEW: Verify the token from CRM
-    console.log(`[SSO] 🔍 Verifying incoming token for clientId: ${clientId}`);
+    // console.log(`[SSO] 🔍 Verifying incoming token for clientId: ${clientId}`);
     const decoded = verifyToken(token);
     if (!decoded) {
       console.error('[SSO] ❌ Token verification failed');
@@ -362,7 +362,7 @@ router.post('/sso-login', async (req: Request, res: Response) => {
       });
     }
 
-    console.log('[SSO] ✅ Token verified successfully. Decoded payload:', decoded);
+    // console.log('[SSO] ✅ Token verified successfully. Decoded payload:', decoded);
 
     // Find user by clientId
     const user = await prisma.user.findUnique({
@@ -457,7 +457,7 @@ router.post('/sso-login', async (req: Request, res: Response) => {
       path: '/',
     });
 
-    console.log('SSO Login successful for user:', user.email);
+    // console.log('SSO Login successful for user:', user.email);
 
     // Return success response
     return res.status(200).json({

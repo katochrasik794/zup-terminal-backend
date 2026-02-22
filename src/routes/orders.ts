@@ -169,7 +169,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
         // Handle 10012 return code (Request Placed) - treated as success in terminal
         const returnCode = orderData?.returnCode || orderData?.ReturnCode;
         if (returnCode === 10012) {
-          console.log('[Orders] Market order: Request Placed (10012) - treating as success');
+          // console.log('[Orders] Market order: Request Placed (10012) - treating as success');
           return res.json({
             success: true,
             data: orderData,
@@ -191,7 +191,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
         });
       }
 
-      console.log('[Orders] Market order placed successfully:', orderData);
+      // console.log('[Orders] Market order placed successfully:', orderData);
 
       return res.json({
         success: true,
@@ -220,7 +220,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
  * Place a pending order (limit or stop)
  */
 router.post('/pending', authenticateToken, async (req: Request, res: Response) => {
-  console.log('[Orders] POST /api/orders/pending hit', { body: req.body });
+  // console.log('[Orders] POST /api/orders/pending hit', { body: req.body });
   try {
     const userId = req.user?.userId;
     const { accountId, symbol, side, volume, price, orderType, stopLoss, takeProfit } = req.body;
@@ -378,13 +378,13 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     const orderUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/${endpoint}?account_id=${encodeURIComponent(accountId)}`;
 
     // Log the request for debugging (especially for stop orders)
-    console.log('[Orders] Placing pending order:', {
-      endpoint,
-      url: orderUrl,
-      payload: orderPayload,
-      orderType: orderType,
-      side: side,
-    });
+    // console.log('[Orders] Placing pending order:', {
+    //   endpoint,
+    //   url: orderUrl,
+    //   payload: orderPayload,
+    //   orderType: orderType,
+    //   side: side,
+    // });
 
     try {
       const orderResponse = await fetch(orderUrl, {
@@ -422,18 +422,18 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
       }
 
       // Log the full response for debugging
-      console.log('[Orders] API Response:', {
-        status: orderResponse.status,
-        statusText: orderResponse.statusText,
-        endpoint,
-        responseData: orderData,
-      });
+      // console.log('[Orders] API Response:', {
+      //   status: orderResponse.status,
+      //   statusText: orderResponse.statusText,
+      //   endpoint,
+      //   responseData: orderData,
+      // });
 
       if (!orderResponse.ok) {
         // Handle 10012 return code (Request Placed) - treated as success in terminal
         const returnCode = orderData?.returnCode || orderData?.ReturnCode;
         if (returnCode === 10012) {
-          console.log('[Orders] Pending order: Request Placed (10012) - treating as success');
+          // console.log('[Orders] Pending order: Request Placed (10012) - treating as success');
           return res.json({
             success: true,
             data: orderData,

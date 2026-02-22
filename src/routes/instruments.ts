@@ -52,11 +52,11 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
             prisma.$queryRaw`SELECT * FROM ib_symbol_spreads` as Promise<any[]>
         ]);
 
-        console.log('[Instruments API] Loaded ibSpreads:', ibSpreads.length);
-        if (ibSpreads.length > 0) {
-            console.log('[Instruments API] First spread sample keys:', Object.keys(ibSpreads[0]));
-            // Sample: { id, symbol, startup_spread, ... }
-        }
+        // console.log('[Instruments API] Loaded ibSpreads:', ibSpreads.length);
+        // if (ibSpreads.length > 0) {
+        //     console.log('[Instruments API] First spread sample keys:', Object.keys(ibSpreads[0]));
+        //     // Sample: { id, symbol, startup_spread, ... }
+        // }
 
         // Create a map for quick lookup from ib_symbol_spreads
         // DB symbols are "BTCUSD" (no suffix)
@@ -98,9 +98,9 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
                 }
             }
 
-            if (inst.symbol.includes('BTC') && !spreadData) {
-                console.log('[Instruments API] WARNING: BTC symbol not found in spreads. Inst:', inst.symbol, 'Clean:', cleanSymbol);
-            }
+            // if (inst.symbol.includes('BTC') && !spreadData) {
+            //     console.log('[Instruments API] WARNING: BTC symbol not found in spreads. Inst:', inst.symbol, 'Clean:', cleanSymbol);
+            // }
 
             // Determine contract size
             // Default logic: If spreadData has it, use it.
