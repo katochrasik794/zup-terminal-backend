@@ -602,10 +602,10 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
       modifyPayload.Volume = Math.round(parseFloat(volume) * 100);
     }
     if (takeProfit !== undefined) {
-      modifyPayload.PriceTP = takeProfit === null || takeProfit === 0 ? 0 : parseFloat(takeProfit);
+      modifyPayload.TakeProfit = takeProfit === null || takeProfit === 0 ? 0 : parseFloat(takeProfit);
     }
     if (stopLoss !== undefined) {
-      modifyPayload.PriceSL = stopLoss === null || stopLoss === 0 ? 0 : parseFloat(stopLoss);
+      modifyPayload.StopLoss = stopLoss === null || stopLoss === 0 ? 0 : parseFloat(stopLoss);
     }
 
     const modifyUrl = `${LIVE_API_URL.replace(/\/$/, '')}/client/Orders/ModifyPendingOrder`;
