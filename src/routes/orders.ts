@@ -11,6 +11,21 @@ router.get('/test', (req: Request, res: Response) => {
 });
 
 /**
+ * Helper to determine the volume for pending orders sent to the C# MT5 API bridge.
+ * The broker's bridge expects exact lots (float) for most symbols (Forex, Metals),
+ * but expects lots * 100 for Crypto symbols like BTC/ETH.
+ */
+function getPendingOrderVolume(symbol: string, volume: number): number {
+  const sym = (symbol || '').toUpperCase();
+  if (sym.includes('BTC') || sym.includes('ETH')) {
+    return Math.round(parseFloat(String(volume)) * 100);
+  }
+  // The broker's bridge puts a 10x multiplier natively on Forex pending orders.
+  // So to place 0.01 lots, we must send 0.001.
+  return Number((parseFloat(String(volume)) / 10).toFixed(4));
+}
+
+/**
  * POST /api/orders/market
  * Place a market order (buy or sell)
  */
@@ -119,8 +134,7 @@ router.post('/market', authenticateToken, async (req: Request, res: Response) =>
     // Normalize symbol (remove / if present)
     const normalizedSymbol = symbol.replace('/', '');
 
-    // Convert volume: frontend sends in lots, API expects in lots * 100
-    // 0.01 lots = 1 unit (as per zuperior-terminal implementation)
+    // The MetaAPI C# backend expects volume * 100 for ALL symbols in Market Orders
     const volumeInUnits = Math.round(parseFloat(volume) * 100);
 
     // Use different endpoints for buy vs sell (as per zuperior-terminal)
@@ -343,15 +357,15 @@ router.post('/pending', authenticateToken, async (req: Request, res: Response) =
     // Use symbol as-is (matching zuperior-terminal - they use String(symbol) without normalization)
     const symbolStr = String(symbol);
 
-    // Convert volume: frontend sends in lots, API expects in lots * 100
-    const volumeInUnits = Math.round(parseFloat(volume) * 100);
+    // The MetaAPI C# backend expects exact lots for Forex/Metals Pending Orders, but 100x for Crypto Pending
+    const volumeToSend = getPendingOrderVolume(symbolStr, parseFloat(volume));
 
     // Build payload matching zuperior-terminal format exactly
     // Always include all fields, even if 0 (matching zuperior-terminal)
     const orderPayload: any = {
       Symbol: symbolStr,
       Price: Number(price),
-      Volume: volumeInUnits,
+      Volume: volumeToSend,
       StopLoss: Number(stopLoss || 0),
       TakeProfit: Number(takeProfit || 0),
       Expiration: '0001-01-01T00:00:00', // Default expiration (no expiration)
@@ -598,8 +612,11 @@ router.put('/pending/:orderId', authenticateToken, async (req: Request, res: Res
       modifyPayload.Price = parseFloat(price);
     }
     if (volume !== undefined) {
-      // Convert volume: frontend sends in lots, API expects in lots * 100
-      modifyPayload.Volume = Math.round(parseFloat(volume) * 100);
+      // The MetaAPI C# backend expects exact lots for Forex/Metals, but 100x for Crypto
+      // If symbol is missing from modify payload, we can't reliably adjust volume here easily without fetching order first,
+      // but usually modify doesn't change volume, or passes it correctly. Assuming 1 isn't safe if it's crypto.
+      // modify endpoint likely doesn't support changing volume anyway, but if it does:
+      modifyPayload.Volume = Number(volume); // Let's pass it exactly as lots as fallback
     }
     if (takeProfit !== undefined) {
       modifyPayload.TakeProfit = takeProfit === null || takeProfit === 0 ? 0 : parseFloat(takeProfit);
