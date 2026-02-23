@@ -779,6 +779,8 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
       let pendingOrders: any[] = [];
       let closedPositions: any[] = [];
 
+      const excludeClosed = req.query.excludeClosed === 'true';
+
       // Fetch open positions
       try {
         const positionsUrl = `${API_BASE}/client/Positions`;
@@ -812,97 +814,65 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
       }
 
       // Fetch closed positions
-      try {
-        // Build query parameters - match zuperior-terminal format
-        const closedParams = new URLSearchParams();
-        closedParams.set('accountId', String(accountId));
-        closedParams.set('AccountId', String(accountId));
-        closedParams.set('fromDate', '1970-01-01');
-        closedParams.set('FromDate', '1970-01-01');
-        closedParams.set('toDate', '2100-01-01');
-        closedParams.set('ToDate', '2100-01-01');
-        closedParams.set('pageSize', '10000');
-        closedParams.set('PageSize', '10000');
+      if (!excludeClosed) {
+        try {
+          // Build query parameters - match zuperior-terminal format
+          const closedParams = new URLSearchParams();
+          closedParams.set('accountId', String(accountId));
+          closedParams.set('AccountId', String(accountId));
+          closedParams.set('fromDate', '1970-01-01');
+          closedParams.set('FromDate', '1970-01-01');
+          closedParams.set('toDate', '2100-01-01');
+          closedParams.set('ToDate', '2100-01-01');
+          closedParams.set('pageSize', '10000');
+          closedParams.set('PageSize', '10000');
 
-        const closedUrl = `${API_BASE}/client/tradehistory/trades?${closedParams.toString()}`;
+          const closedUrl = `${API_BASE}/client/tradehistory/trades?${closedParams.toString()}`;
 
-        // Tradehistory API may not require Authorization header (as per zuperior-terminal)
-        // Try with auth first, fallback without if needed
-        const closedResponse = await fetch(closedUrl, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            ...baseHeaders, // Include auth, but API might not require it
-          },
-        });
-
-        if (closedResponse.ok) {
-          const closedData = await closedResponse.json() as any;
-          // Extract trades from response - try multiple possible structures
-          let allTrades: any[] = [];
-          if (Array.isArray(closedData)) {
-            allTrades = closedData;
-          } else if (closedData && typeof closedData === 'object') {
-            allTrades = closedData.Items ||
-              closedData.Data ||
-              closedData.data ||
-              closedData.trades ||
-              closedData.items ||
-              closedData.results ||
-              closedData.Results ||
-              closedData.Trades ||
-              closedData.closedTrades ||
-              closedData.ClosedTrades ||
-              closedData.tradeHistory ||
-              closedData.TradeHistory ||
-              [];
-          }
-
-          // Filter for closed trades - match zuperior-terminal logic
-          // A closed position must have:
-          // 1. Valid OrderId or DealId > 0
-          // 2. Non-empty Symbol
-          // 3. Valid Price (not 0 or undefined) - this is the close price
-          // 4. Valid VolumeLots or Volume
-          // 5. Non-zero P/L (Profit > 0 or Profit < 0)
-          // Note: CloseTime is NOT required (as per zuperior-terminal implementation)
-          closedPositions = allTrades.filter((trade: any, index: number) => {
-            // Get identifiers
-            const orderId = trade.OrderId ?? trade.orderId ?? trade.DealId ?? trade.dealId ?? 0;
-            const symbol = (trade.Symbol || trade.symbol || '').trim();
-
-            // Get price (could be Price, ClosePrice, or OpenPrice)
-            const price = trade.Price ?? trade.price ?? trade.ClosePrice ?? trade.closePrice ?? trade.PriceClose ?? trade.priceClose ?? trade.OpenPrice ?? trade.openPrice ?? 0;
-
-            // Get volume
-            const volumeLots = trade.VolumeLots ?? trade.volumeLots ?? trade.Volume ?? trade.volume ?? 0;
-
-            // Get P/L (Profit)
-            const profit = trade.Profit ?? trade.profit ?? trade.PnL ?? trade.pnl ?? 0;
-            const profitNum = Number(profit);
-
-            // Basic validation for closed positions (matching zuperior-terminal)
-            const hasValidOrderId = Number(orderId) > 0 && !isNaN(Number(orderId));
-            const hasValidSymbol = symbol && symbol.length > 0;
-            const hasValidPrice = Number(price) > 0 && !isNaN(Number(price));
-            const hasValidVolume = Number(volumeLots) > 0 && !isNaN(Number(volumeLots));
-            // Only include trades with non-zero P/L (Profit > 0 or Profit < 0)
-            const hasNonZeroProfit = Number.isFinite(profitNum) && profitNum !== 0;
-
-            return hasValidOrderId && hasValidSymbol && hasValidPrice && hasValidVolume && hasNonZeroProfit;
+          const closedResponse = await fetch(closedUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              ...baseHeaders,
+            },
           });
+
+          if (closedResponse.ok) {
+            const closedData = await closedResponse.json() as any;
+            let allTrades: any[] = [];
+            if (Array.isArray(closedData)) {
+              allTrades = closedData;
+            } else if (closedData && typeof closedData === 'object') {
+              allTrades = closedData.Items || closedData.Data || closedData.data || closedData.trades || [];
+            }
+
+            closedPositions = allTrades.filter((trade: any) => {
+              const orderId = trade.OrderId ?? trade.orderId ?? trade.DealId ?? trade.dealId ?? 0;
+              const symbol = (trade.Symbol || trade.symbol || '').trim();
+              const price = trade.Price ?? trade.price ?? trade.ClosePrice ?? trade.closePrice ?? 0;
+              const volumeLots = trade.VolumeLots ?? trade.volumeLots ?? trade.Volume ?? trade.volume ?? 0;
+              const profitNum = Number(trade.Profit ?? trade.profit ?? 0);
+
+              return Number(orderId) > 0 && symbol.length > 0 && Number(price) > 0 && Number(volumeLots) > 0 && profitNum !== 0;
+            });
+          }
+        } catch (err) {
+          // Continue with empty array
         }
-      } catch (err) {
-        // Continue with empty array
       }
 
-      return res.json({
+      const responseData: any = {
         success: true,
         positions: openPositions,
         pendingOrders: pendingOrders,
-        closedPositions: closedPositions,
         accountId: accountId,
-      });
+      };
+
+      if (!excludeClosed) {
+        responseData.closedPositions = closedPositions;
+      }
+
+      return res.json(responseData);
     } catch (err) {
       return res.status(500).json({
         success: false,
@@ -916,6 +886,113 @@ router.get('/:accountId', authenticateToken, async (req: Request, res: Response)
       message: 'Internal server error',
       error: error instanceof Error ? error.message : 'Unknown error',
     });
+  }
+});
+
+/**
+ * GET /api/positions/:accountId/closed
+ * Get only closed positions for an account
+ */
+router.get('/:accountId/closed', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { accountId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Get MT5 account
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        userId: userId,
+        OR: [{ id: String(accountId) }, { accountId: String(accountId) }],
+        archived: false,
+      },
+    });
+
+    if (!mt5Account || !mt5Account.password) {
+      return res.status(404).json({ success: false, message: 'MT5 account not found' });
+    }
+
+    // Auth with MetaAPI
+    const LIVE_API_URL = process.env.LIVE_API_URL || 'https://metaapi.zuperior.com/api';
+    const CLIENT_LOGIN_PATH = process.env.CLIENT_LOGIN_PATH || '/client/ClientAuth/login';
+    let CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH;
+    if (CLIENT_LOGIN_PATH_clean.startsWith('/api/')) {
+      CLIENT_LOGIN_PATH_clean = CLIENT_LOGIN_PATH_clean.replace(/^\/api/, '');
+    }
+    const loginUrl = CLIENT_LOGIN_PATH_clean.startsWith('http')
+      ? CLIENT_LOGIN_PATH_clean
+      : `${LIVE_API_URL.replace(/\/$/, '')}/${CLIENT_LOGIN_PATH_clean.replace(/^\//, '')}`;
+
+    let accessToken: string | null = tokenCache.get(String(accountId));
+    if (!accessToken) {
+      const loginPayload = {
+        AccountId: parseInt(mt5Account.accountId, 10),
+        Password: mt5Account.password.trim(),
+        DeviceId: `web_closed_${userId}_${Date.now()}`,
+        DeviceType: 'web',
+      };
+      const loginResponse = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginPayload),
+      });
+      if (loginResponse.ok) {
+        const loginData = await loginResponse.json() as any;
+        accessToken = loginData?.Token || loginData?.accessToken || loginData?.token || null;
+        if (accessToken) tokenCache.set(String(accountId), accessToken, 3600);
+      }
+    }
+
+    if (!accessToken) {
+      return res.status(401).json({ success: false, message: 'Failed to authenticate with MetaAPI' });
+    }
+
+    const API_BASE = LIVE_API_URL.endsWith('/api') ? LIVE_API_URL : `${LIVE_API_URL.replace(/\/$/, '')}/api`;
+    const baseHeaders = {
+      'Authorization': `Bearer ${accessToken}`,
+      'AccountId': String(accountId),
+      'Accept': 'application/json',
+    };
+
+    const closedParams = new URLSearchParams();
+    closedParams.set('accountId', String(accountId));
+    closedParams.set('AccountId', String(accountId));
+    closedParams.set('fromDate', '1970-01-01');
+    closedParams.set('FromDate', '1970-01-01');
+    closedParams.set('toDate', '2100-01-01');
+    closedParams.set('ToDate', '2100-01-01');
+    closedParams.set('pageSize', '10000');
+    closedParams.set('PageSize', '10000');
+
+    const closedUrl = `${API_BASE}/client/tradehistory/trades?${closedParams.toString()}`;
+    const closedResponse = await fetch(closedUrl, { method: 'GET', headers: baseHeaders });
+
+    let closedPositions: any[] = [];
+    if (closedResponse.ok) {
+      const closedData = await closedResponse.json() as any;
+      let allTrades = Array.isArray(closedData) ? closedData : (closedData.Items || closedData.Data || closedData.data || closedData.trades || []);
+
+      closedPositions = allTrades.filter((trade: any) => {
+        const orderId = trade.OrderId ?? trade.orderId ?? trade.DealId ?? trade.dealId ?? 0;
+        const symbol = (trade.Symbol || trade.symbol || '').trim();
+        const price = trade.Price ?? trade.price ?? trade.ClosePrice ?? trade.closePrice ?? 0;
+        const volumeLots = trade.VolumeLots ?? trade.volumeLots ?? trade.Volume ?? trade.volume ?? 0;
+        const profit = trade.Profit ?? trade.profit ?? 0;
+
+        return Number(orderId) > 0 && symbol.length > 0 && Number(price) > 0 && Number(volumeLots) > 0 && Number(profit) !== 0;
+      });
+    }
+
+    return res.json({
+      success: true,
+      closedPositions: closedPositions,
+      accountId: accountId,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
