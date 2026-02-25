@@ -72,7 +72,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
 
         // Helper to normalize symbol
         const normalize = (sym: string) => {
-            return sym.replace(/m$/, '').replace(/\.pro$/, '').replace(/\.ecn$/, '');
+            return sym.replace(/m$/, '').replace(/\.pro$/, '').replace(/\.ecn$/, '').replace(/\.s$/, '').replace(/\.r$/, '').replace(/\.e$/, '');
         };
 
         // Flatten favorite status and sort order AND merge details
@@ -132,11 +132,11 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
                 sortOrder: fav?.sortOrder ?? 99999, // default to end
                 UserFavorite: undefined, // remove join data
 
-                // Merged fields
                 contractSize: contractSize,
                 spread: spreadVal,
                 commission: 0,
-                pipValue: spreadData?.pip_value ? Number(spreadData.pip_value) : undefined // Use DB pip_value if available
+                pipValue: spreadData?.pip_value ? Number(spreadData.pip_value) : undefined, // Use DB pip_value if available
+                leverage: spreadData?.leverage || undefined
             };
         }).sort((a, b) => {
             // Sort by sortOrder first, then by symbol
