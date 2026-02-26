@@ -598,4 +598,85 @@ router.get('/:accountId/profile', authenticateToken, async (req: Request, res: R
   }
 });
 
+/**
+ * POST /api/accounts/:accountId/topup
+ * Top up balance for a demo account
+ */
+router.post('/:accountId/topup', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { accountId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    // Find the MT5 account and verify ownership
+    const mt5Account = await prisma.mT5Account.findFirst({
+      where: {
+        OR: [
+          { id: accountId as string },
+          { accountId: accountId as string }
+        ],
+        userId: userId,
+        archived: false,
+      }
+    });
+
+    if (!mt5Account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found',
+      });
+    }
+
+    // Perform the topup - increment balance and equity by $10,000
+    const topupAmount = 10000;
+    const updatedAccount = await prisma.mT5Account.update({
+      where: { id: mt5Account.id },
+      data: {
+        balance: { increment: topupAmount },
+        equity: { increment: topupAmount },
+      },
+    });
+
+    // Log the transaction
+    try {
+      await (prisma as any).mT5Transaction.create({
+        data: {
+          type: 'deposit',
+          amount: topupAmount,
+          status: 'completed',
+          mt5AccountId: mt5Account.id,
+          userId: userId,
+          comment: 'Demo account top up',
+          currency: mt5Account.currency || 'USD',
+        }
+      });
+    } catch (logError) {
+      console.error('[TopUp] Failed to log transaction:', logError);
+      // Continue anyway as the balance was updated
+    }
+
+    return res.json({
+      success: true,
+      message: `Successfully topped up account by $${topupAmount.toLocaleString()}`,
+      data: {
+        accountId: mt5Account.accountId,
+        newBalance: updatedAccount.balance,
+        newEquity: updatedAccount.equity,
+      },
+    });
+  } catch (error) {
+    console.error('[TopUp] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to top up account',
+    });
+  }
+});
+
 export default router;
